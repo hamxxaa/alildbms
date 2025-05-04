@@ -1,1 +1,6 @@
-/users.bin
+/dbms
+/obj
+/bins/*.bin
+/hashmaps/*.hashmap
+/metadatas/*.metadata
+/.vscode
