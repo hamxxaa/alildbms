@@ -35,12 +35,44 @@ int main()
             printf("Failed to insert record 3\n");
         }
 
-        char *record = search_record_by_key(user_table, 2);
+        // Update record
+
+        char *record = search_record_by_key(user_table, 1);
         if (record)
         {
             printf("Found record:\n");
-            print_row_readable(*user_table, record);
+            print_row_readable(user_table, record);
             free(record);
+        }
+        else
+        {
+            printf("Record not found\n");
+        }
+
+        // Update record
+        if (update_record(user_table, columns[3], 1, "updated_mail") != 0)
+        {
+            printf("Failed to update record\n");
+        }
+        char *record1 = search_record_by_key(user_table, 1);
+        if (record1)
+        {
+            printf("Found record:\n");
+            print_row_readable(user_table, record1);
+            free(record1);
+        }
+
+        // Delete record
+        if (delete_record(user_table, 1) != 0)
+        {
+            printf("Failed to delete record\n");
+        }
+        char *record2 = search_record_by_key(user_table, 1);
+        if (record2)
+        {
+            printf("Found record:\n");
+            print_row_readable(user_table, record2);
+            free(record2);
         }
         else
         {
@@ -55,8 +87,9 @@ int main()
     //         printf("Failed to read table metadata\n");
     //         return 1;
     //     }
+
     //     // search records
-    //     char *record = search_record_by_key(user_table, 2);
+    //     char *record = search_record_by_key(user_table, 1333);
     //     if (record)
     //     {
     //         printf("Found record:\n");
@@ -67,6 +100,14 @@ int main()
     //     {
     //         printf("Record not found\n");
     //     }
+
+    // for (int i = 4; i < 5000; i++)
+    // {
+    //     if (insert_record(user_table, i, "Alice", 25, "mailll") != 0)
+    //     {
+    //         printf("Failed to insert record %d\n", i);
+    //     }
+    // }
     // }
 
     return 0;

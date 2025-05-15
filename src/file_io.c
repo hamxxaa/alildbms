@@ -1,4 +1,5 @@
 #include "file_io.h"
+#include <string.h>
 
 FILE *open_file(const char *table_name, const char *exit, const char *mode)
 {
@@ -60,6 +61,10 @@ int store_table_metadata(Table *table)
     {
         fwrite(&table->columns[i], sizeof(Column), 1, file);
     }
+    for (int i = 0; i < MAX_FREE_SPACES; i++)
+    {
+        fwrite(&table->free_spaces[i], sizeof(long), 1, file);
+    }
 
     fflush(file);
     fclose(file);
@@ -92,6 +97,22 @@ int update_hashmap_file_entries(Table *table)
 
     fseek(file, sizeof(int), SEEK_SET);
     fwrite(&table->hash->entries, sizeof(int), 1, file);
+
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int update_table_metadata_free_spaces(Table *table)
+{
+    FILE *file = open_file(table->table_name, "metadata", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, sizeof(int) + sizeof(char) * MAX_NAME_LEN + sizeof(int) * 3 + sizeof(Column) * table->columns_count, SEEK_SET);
+    fwrite(table->free_spaces, sizeof(long) + sizeof(int), MAX_FREE_SPACES, file);
 
     fflush(file);
     fclose(file);
@@ -189,6 +210,10 @@ Table *read_table_metadata(const char *tablename)
     {
         fread(&table->columns[i], sizeof(Column), 1, file);
     }
+    for (int i = 0; i < MAX_FREE_SPACES; i++)
+    {
+        fread(&table->free_spaces[i], sizeof(long), 1, file);
+    }
 
     fflush(file);
     fclose(file);
@@ -201,4 +226,19 @@ Table *read_table_metadata(const char *tablename)
         return NULL;
     }
     return table;
+}
+
+int write_string_to_file(FILE *file, const char *val, int length)
+{
+    char *str_copy = calloc(1, length + 1);
+    if (str_copy == NULL)
+    {
+        return -1;
+    }
+    strncpy(str_copy, val, strlen(val));
+    str_copy[length] = '\0'; // Null-terminate the string
+
+    fwrite(str_copy, length + 1, 1, file);
+    free(str_copy);
+    return 0;
 }

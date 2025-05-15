@@ -73,11 +73,30 @@ int insert_to_hashmap_file(Table *table, const HashEntry *he);
 HashTable *read_hashmap_file(Table *table);
 
 /**
+ * @brief Write a string to a file.
+ *
+ * @param file The file to write to.
+ * @param val The string value to write.
+ * @param length The length of the string.
+ * @return int 0 on success, -1 on failure.
+ */
+int write_string_to_file(FILE *file, const char *val, int length);
+
+/**
  * @brief Read the metadata of a table from the metadata file and create the table from the metadata.
  *
  * @param tablename The name of the table whose metadata is to be read.
  * @return Table* Pointer to the table structure containing the metadata.
  */
 Table *read_table_metadata(const char *tablename);
+
+/**
+
+ * @brief Update the metadata file of the table with the new free spaces count.
+ *
+ * @param table The table whose metadata file is to be updated.
+ * @return int 0 on success, -1 on failure.
+ */
+int update_table_metadata_free_spaces(Table *table);
 
 #endif

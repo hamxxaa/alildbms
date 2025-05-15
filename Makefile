@@ -5,6 +5,9 @@ LDFLAGS = -lcjson
 SRC_DIR = src
 INCLUDE_DIR = src/include
 OBJ_DIR = obj
+HASH_DIR = hashmaps
+META_DIR = metadatas
+BIN_DIR = bins
 
 SOURCES = $(wildcard $(SRC_DIR)/*.c)
 OBJECTS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SOURCES))
@@ -24,6 +27,9 @@ $(OBJ_DIR):
 # Clean rule to remove all build artifacts
 clean:
 	rm -rf $(OBJ_DIR) $(EXECUTABLE)
+
+fclean: clean
+	rm -rf $(HASH_DIR)/* $(META_DIR)/* $(BIN_DIR)/*
 
 # Generate dependencies for header files
 -include $(OBJECTS:.o=.d)

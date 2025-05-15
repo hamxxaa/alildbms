@@ -4,10 +4,12 @@
 #define MAX_COLUMN_COUNT 20
 #define MAX_NAME_LEN 50
 #define DEFAULT_TABLE_SIZE 1000
+#define MAX_FREE_SPACES DEFAULT_TABLE_SIZE / 2
 
 #include "hashmap.h"
 #include "fnv_hash.h"
 #include <stdlib.h>
+#include <stdarg.h>
 
 typedef enum
 {
@@ -31,6 +33,8 @@ typedef struct
     int record_size;
     HashTable *hash;
     int row_size_in_bytes;
+    long free_spaces[MAX_FREE_SPACES];
+    int free_spaces_count;
 } Table;
 
 /**
@@ -77,7 +81,7 @@ int insert_record(Table *table, ...);
  * @param ... The primary key value to search for.
  * @return char* Pointer to the record binary data, or NULL if not found.
  */
-char *search_record_by_key(Table *table, ...);
+char *search_record_by_key(const Table *table, ...);
 
 /**
  * @brief print the binary-form record in a human-readable format.
@@ -86,6 +90,70 @@ char *search_record_by_key(Table *table, ...);
  * @param data The binary data of the record.
  * @return void
  */
-void print_row_readable(Table table, const char *data);
+void print_row_readable(const Table *table, const char *data);
+
+/**
+ * @brief Check if a column exists in the table.
+ *
+ * @param table The table to check in.
+ * @param column The column to check for.
+ * @return int 1 if the column exists, 0 otherwise.
+ */
+int check_column_exists(const Table *table, const Column column);
+
+/**
+ * @brief Check if a column exists in the table by its name.
+ *
+ * @param table The table to check in.
+ * @param column_name The name of the column to check for.
+ * @return int 1 if the column exists, 0 otherwise.
+ */
+int check_column_exists_by_name(const Table *table, const char *column_name);
+
+/**
+ * @brief Calculate the offset of a column in the table.
+ *
+ * @param table The table to check in.
+ * @param column The column to calculate the offset for.
+ * @return int The offset of the column, or -1 if not found.
+ */
+int calculate_offset(const Table *table, const Column column);
+
+/**
+ * @brief find the position of a record in the file it gets the primary key from table and takes the correct value from args given.
+ *
+ * @param table The table to search in.
+ * @param args The variable arguments list containing the primary key value.
+ * @return long The position of the record in the file, or -1 if table does not exist,-2 if primary key is invalid, -3 if hash entry could not be created.
+ */
+long find_record_position(const Table *table, va_list args);
+
+/**
+ * @brief Update a record in the table.
+ *
+ * @param table The table to update the record in.
+ * @param column The column to update.
+ * @param ... Primary key and The new value for the column.
+ * @return int 0 on success, -1 on failure.
+ */
+int update_record(const Table *table, const Column column, ...);
+
+/**
+ * @brief Compare two columns by their names.
+ *
+ * @param a The first column.
+ * @param b The second column.
+ * @return int 0 if equal, non-zero otherwise.
+ */
+int cmpcolumns(const Column a, const Column b);
+
+/**
+ * @brief deletes a record from the table.
+ *
+ * @param table The table to delete the record from.
+ * @param ... The primary key value to delete.
+ * @return int 0 on success, -1 on failure.
+ */
+int delete_record(Table *table, ...);
 
 #endif

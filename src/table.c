@@ -1,6 +1,5 @@
 #include "table.h"
 #include "file_io.h"
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -68,6 +67,11 @@ Table *create_table(const char *table_name, const Column *columns, const int col
     table->record_size = 0;
     table->columns_count = columns_count;
     table->primary_key = primary_key;
+    table->free_spaces_count = 0;
+    for (int i = 0; i < MAX_FREE_SPACES; i++)
+    {
+        table->free_spaces[i] = -1;
+    }
     table->hash = create_hashtable(DEFAULT_TABLE_SIZE);
     if (!table->hash)
     {
@@ -94,7 +98,28 @@ int insert_record(Table *table, ...)
 
     Key key;
     uint32_t hash;
-    long pos = ftell(file);
+    long pos;
+    if (table->free_spaces_count > 0)
+    {
+        // Use the first free space
+        pos = table->free_spaces[table->free_spaces_count - 1];
+        table->free_spaces[table->free_spaces_count - 1] = -1; // Mark as used
+        table->free_spaces_count--;
+        if (update_table_metadata_free_spaces(table) != 0)
+        {
+            printf("Failed to update free spaces in metadata file\n");
+            fclose(file);
+            va_end(args);
+            return -1;
+        }
+        fseek(file, pos, SEEK_SET);
+    }
+    else
+    {
+        // Append to the end of the file
+        pos = ftell(file);
+    }
+
     // Write each column value based on its type
     for (int i = 0; i < table->columns_count; i++)
     {
@@ -104,7 +129,7 @@ int insert_record(Table *table, ...)
         {
             int val = va_arg(args, int);
             fwrite(&val, sizeof(int), 1, file);
-            if (strcmp(table->columns[i].name, table->primary_key.name) == 0)
+            if (cmpcolumns(table->columns[i], table->primary_key) == 0)
             {
                 key.int_key = val;
                 hash = fnv1a_hash_int(val);
@@ -114,25 +139,18 @@ int insert_record(Table *table, ...)
         case STRING:
         {
             char *str = va_arg(args, char *);
-            char *str_copy = calloc(1, table->columns[i].lenght + 1);
-            if (str_copy == NULL)
+            if (write_string_to_file(file, str, table->columns[i].lenght) != 0)
             {
-                perror("Memory allocation failed");
+                printf("Failed to write string to file\n");
                 fclose(file);
                 va_end(args);
                 return -1;
             }
-            strncpy(str_copy, str, strlen(str));
-            str_copy[table->columns[i].lenght] = '\0'; // Null-terminate the string
-
-            // Write string length first?
-            fwrite(str_copy, table->columns[i].lenght + 1, 1, file);
             if (table->columns[i].name == table->primary_key.name)
             {
-                key.char_key = str_copy;
-                hash = fnv1a_hash_str(str_copy);
+                key.char_key = str;
+                hash = fnv1a_hash_str(str);
             }
-            free(str_copy);
             break;
         }
         }
@@ -167,7 +185,7 @@ int insert_record(Table *table, ...)
     return 0;
 }
 
-char *search_record_by_key(Table *table, ...)
+char *search_record_by_key(const Table *table, ...)
 {
     va_list args;
     va_start(args, table);
@@ -178,29 +196,30 @@ char *search_record_by_key(Table *table, ...)
         return NULL;
     }
 
-    // Calculate hash and index
-    uint32_t hash;
-    Key key;
-    if (table->primary_key.type == INT)
+    long pos = find_record_position(table, args);
+    if (pos == -1)
     {
-        key.int_key = va_arg(args, int);
-        hash = fnv1a_hash_int(key.int_key);
-    }
-    if (table->primary_key.type == STRING)
-    {
-        key.char_key = va_arg(args, char *);
-        hash = fnv1a_hash_str(key.char_key);
-    }
-
-    HashEntry *he = find_right_entry_in_bucket(table->hash, key, hash);
-    if (he == NULL)
-    {
-        printf("Record not found\n");
+        printf("Table not found\n");
         fclose(file);
         va_end(args);
         return NULL;
     }
-    long pos = he->file_pos;
+
+    if (pos == -2)
+    {
+        printf("Invalid data type\n");
+        fclose(file);
+        va_end(args);
+        return NULL;
+    }
+
+    if (pos == -3)
+    {
+        printf("Hash entry could not be created\n");
+        fclose(file);
+        va_end(args);
+        return NULL;
+    }
 
     // Read data
     fseek(file, pos, SEEK_SET);
@@ -228,15 +247,15 @@ char *search_record_by_key(Table *table, ...)
     return buffer;
 }
 
-void print_row_readable(Table table, const char *data)
+void print_row_readable(const Table *table, const char *data)
 {
     int intdata;
     char *chardata;
 
-    for (int i = 0; i < table.columns_count; i++)
+    for (int i = 0; i < table->columns_count; i++)
     {
-        printf("%s: ", table.columns[i].name);
-        switch (table.columns[i].type)
+        printf("%s: ", table->columns[i].name);
+        switch (table->columns[i].type)
         {
         case INT:
             intdata = *(int *)data;
@@ -245,12 +264,212 @@ void print_row_readable(Table table, const char *data)
             break;
 
         case STRING:
-            chardata = malloc((table.columns[i].lenght + 1) * sizeof(char));
-            memcpy(chardata, data, table.columns[i].lenght + 1);
+            chardata = malloc((table->columns[i].lenght + 1) * sizeof(char));
+            memcpy(chardata, data, table->columns[i].lenght + 1);
             printf("%s\n", chardata);
             free(chardata);
-            data += table.columns[i].lenght + 1; // Move pointer to the next column
+            data += table->columns[i].lenght + 1; // Move pointer to the next column
             break;
         }
     }
+    printf("\n");
+}
+
+int check_column_exists(const Table *table, const Column column)
+{
+    for (int i = 0; i < table->columns_count; i++)
+    {
+        if (strcmp(table->columns[i].name, column.name) == 0)
+        {
+            return 1; // Column exists
+        }
+    }
+    return 0; // Column does not exist
+}
+
+int check_column_exists_by_name(const Table *table, const char *column_name)
+{
+    for (int i = 0; i < table->columns_count; i++)
+    {
+        if (strcmp(table->columns[i].name, column_name) == 0)
+        {
+            return 1; // Column exists
+        }
+    }
+    return 0; // Column does not exist
+}
+
+int cmpcolumns(const Column a, const Column b)
+{
+    return strcmp(a.name, b.name);
+}
+
+long find_record_position(const Table *table, va_list args)
+{
+    if (!table)
+    {
+        return -1;
+    }
+
+    Key key;
+    uint32_t hash;
+
+    if (table->primary_key.type == INT)
+    {
+        key.int_key = va_arg(args, int);
+        hash = fnv1a_hash_int(key.int_key);
+    }
+    else if (table->primary_key.type == STRING)
+    {
+        key.char_key = va_arg(args, char *);
+        hash = fnv1a_hash_str(key.char_key);
+    }
+    else
+    {
+        return -2;
+    }
+
+    HashEntry *he = find_right_entry_in_bucket(table->hash, key, hash);
+    if (he == NULL)
+    {
+        return -3;
+    }
+
+    return he->file_pos;
+}
+
+int calculate_offset(const Table *table, const Column column)
+{
+    int offset = 0;
+    for (int i = 0; i < table->columns_count; i++)
+    {
+        if (cmpcolumns(table->columns[i], column) == 0)
+        {
+            return offset;
+        }
+        else
+        {
+            switch (table->columns[i].type)
+            {
+            case INT:
+                offset += sizeof(int);
+                break;
+
+            case STRING:
+                offset += table->columns[i].lenght + 1; // +1 for null terminator
+                break;
+            }
+        }
+    }
+    return -1; // Column not found
+}
+
+int update_record(const Table *table, const Column column, ...)
+{
+
+    if (!check_column_exists(table, column))
+    {
+        printf("Column does not exist\n");
+        return -1;
+    }
+
+    va_list args;
+    va_start(args, column);
+
+    FILE *file = open_file(table->table_name, "bin", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    long pos = find_record_position(table, args);
+    if (pos < 0)
+    {
+        printf("Record not found\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    int offset = calculate_offset(table, column);
+    if (offset < 0)
+    {
+        printf("Column not found\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+    fseek(file, pos + offset, SEEK_SET);
+
+    switch (column.type)
+    {
+    case INT:
+    {
+        int val = va_arg(args, int);
+        fwrite(&val, sizeof(int), 1, file);
+        break;
+    }
+    case STRING:
+    {
+        char *str = va_arg(args, char *);
+        if (write_string_to_file(file, str, column.lenght) != 0)
+        {
+            printf("Failed to write string to file\n");
+            fclose(file);
+            va_end(args);
+            return -1;
+        }
+        break;
+    }
+    }
+
+    fflush(file);
+    fclose(file);
+    va_end(args);
+    return 0;
+}
+
+int delete_record(Table *table, ...)
+{
+    //TODO: delete from hashmap
+    va_list args;
+    va_start(args, table);
+
+    FILE *file = open_file(table->table_name, "bin", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    long pos = find_record_position(table, args);
+    if (pos < 0)
+    {
+        printf("Record not found\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    fseek(file, pos, SEEK_SET);
+    char *deleted_record = (char *)malloc(table->row_size_in_bytes);
+    memset(deleted_record, 0, table->row_size_in_bytes); // Set all bytes to 0
+    fwrite(deleted_record, 1, table->row_size_in_bytes, file);
+
+    table->record_size--;
+    table->free_spaces[table->free_spaces_count] = pos;
+    table->free_spaces_count++;
+    if (update_table_metadata_free_spaces(table) != 0)
+    {
+        printf("Failed to update free spaces in metadata file\n");
+        free(deleted_record);
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    free(deleted_record);
+    fflush(file);
+    fclose(file);
+    va_end(args);
+    return 0;
 }
