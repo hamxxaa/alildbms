@@ -21,7 +21,7 @@ FILE *open_file(const char *table_name, const char *exit, const char *mode);
  * @param table The table for which the hashmap file is created.
  * @return int 0 on success, -1 on failure.
  */
-int create_hashmap_file(Table *table);
+int create_hashmap_file(const Table *table);
 
 /**
  * @brief Create a binary file for the given table.
@@ -29,7 +29,7 @@ int create_hashmap_file(Table *table);
  * @param table The table for which the binary file is created.
  * @return int 0 on success, -1 on failure.
  */
-int create_bin_file(Table *table);
+int create_bin_file(const Table *table);
 
 /**
  * @brief Create a metadata file for the table and write tables metadata on the file.
@@ -37,7 +37,7 @@ int create_bin_file(Table *table);
  * @param table The table whose metadata is to be stored.
  * @return int 0 on success, -1 on failure.
  */
-int store_table_metadata(Table *table);
+int store_table_metadata(const Table *table);
 
 /**
  * @brief Update the record size indicator in the metadata file of the table.
@@ -45,7 +45,7 @@ int store_table_metadata(Table *table);
  * @param table The table whose record size is to be updated.
  * @return int 0 on success, -1 on failure.
  */
-int update_table_metadata_record_size(Table *table);
+int update_table_metadata_record_size(const Table *table);
 
 /**
  * @brief Update the number of entries indicator in the hashmap file for the given table.
@@ -53,7 +53,7 @@ int update_table_metadata_record_size(Table *table);
  * @param table The table whose hashmap file is to be updated.
  * @return int 0 on success, -1 on failure.
  */
-int update_hashmap_file_entries(Table *table);
+int update_hashmap_file_entries(const Table *table);
 
 /**
  * @brief Insert a hash entry into the hashmap file for the given table.
@@ -62,7 +62,7 @@ int update_hashmap_file_entries(Table *table);
  * @param he The hash entry to be inserted.
  * @return int 0 on success, -1 on failure.
  */
-int insert_to_hashmap_file(Table *table, const HashEntry *he);
+int insert_to_hashmap_file(const Table *table, HashEntry *he);
 
 /**
  * @brief Read the hashmap file for the given table and create a hash table from it.
@@ -70,7 +70,7 @@ int insert_to_hashmap_file(Table *table, const HashEntry *he);
  * @param table The table whose hashmap file is to be read.
  * @return HashTable* Pointer to the hash table created from the file.
  */
-HashTable *read_hashmap_file(Table *table);
+HashTable *read_hashmap_file(const Table *table);
 
 /**
  * @brief Write a string to a file.
@@ -97,6 +97,48 @@ Table *read_table_metadata(const char *tablename);
  * @param table The table whose metadata file is to be updated.
  * @return int 0 on success, -1 on failure.
  */
-int update_table_metadata_free_spaces(Table *table);
+int update_table_metadata_free_spaces(const Table *table);
+
+/**
+ * @brief Update the metadata file of the table with the new free spaces count.
+ *
+ * @param table The table whose metadata file is to be updated.
+ * @return int 0 on success, -1 on failure.
+ */
+int update_table_metadata_free_spaces_count(const Table *table);
+
+/**
+ * @brief Delete entry from the hashmap file.
+ *
+ * @param table The table to delete the entry from.
+ * @param he The hash entry to delete.
+ * @return int 0 on success, -1 on failure.
+ */
+int delete_entry_from_hashmap_file(const Table *table, const HashEntry *he);
+
+/**
+ * @brief Delete a record from the binary file of the table.
+ *
+ * @param table The table from which to delete the record.
+ * @param pos The position of the record in the file.
+ * @return int 0 on success, -1 on failure.
+ */
+int delete_record_from_file(const Table *table, long pos);
+
+/**
+ * @brief Update the free spaces count in the hashmap file.
+ *
+ * @param table The table whose hashmap file is to be updated.
+ * @return int 0 on success, -1 on failure.
+ */
+int update_hashmap_file_free_spaces_count(const Table *table);
+
+/**
+ * @brief Update the free spaces in the hashmap file.
+ *
+ * @param table The table whose hashmap file is to be updated.
+ * @return int 0 on success, -1 on failure.
+ */
+int update_hashmap_file_free_spaces(const Table *table);
 
 #endif

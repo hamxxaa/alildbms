@@ -146,7 +146,7 @@ int insert_record(Table *table, ...)
                 va_end(args);
                 return -1;
             }
-            if (table->columns[i].name == table->primary_key.name)
+            if (strcmp(table->columns[i].name, table->primary_key.name) == 0)
             {
                 key.char_key = str;
                 hash = fnv1a_hash_str(str);
@@ -199,7 +199,7 @@ char *search_record_by_key(const Table *table, ...)
     long pos = find_record_position(table, args);
     if (pos == -1)
     {
-        printf("Table not found\n");
+        printf("Failed to locate record\n");
         fclose(file);
         va_end(args);
         return NULL;
@@ -227,7 +227,6 @@ char *search_record_by_key(const Table *table, ...)
     if (buffer == NULL)
     {
         perror("Memory allocation failed");
-        free(buffer);
         fclose(file);
         return NULL;
     }
@@ -304,11 +303,11 @@ int cmpcolumns(const Column a, const Column b)
     return strcmp(a.name, b.name);
 }
 
-long find_record_position(const Table *table, va_list args)
+HashEntry *find_record_from_args(const Table *table, va_list args)
 {
     if (!table)
     {
-        return -1;
+        return NULL;
     }
 
     Key key;
@@ -326,15 +325,26 @@ long find_record_position(const Table *table, va_list args)
     }
     else
     {
-        return -2;
+        return NULL;
     }
-
     HashEntry *he = find_right_entry_in_bucket(table->hash, key, hash);
     if (he == NULL)
     {
-        return -3;
+        printf("Hash entry not found\n");
+        return NULL;
     }
 
+    return he;
+}
+
+long find_record_position(const Table *table, va_list args)
+{
+    HashEntry *he = find_record_from_args(table, args);
+    if (he == NULL)
+    {
+        printf("Record not found from args\n");
+        return -1;
+    }
     return he->file_pos;
 }
 
@@ -431,7 +441,7 @@ int update_record(const Table *table, const Column column, ...)
 
 int delete_record(Table *table, ...)
 {
-    //TODO: delete from hashmap
+    // TODO: delete from hashmap
     va_list args;
     va_start(args, table);
 
@@ -441,33 +451,86 @@ int delete_record(Table *table, ...)
         return -1;
     }
 
-    long pos = find_record_position(table, args);
-    if (pos < 0)
+    HashEntry *he = find_record_from_args(table, args);
+    if (he == NULL)
     {
         printf("Record not found\n");
         fclose(file);
         va_end(args);
         return -1;
     }
-
-    fseek(file, pos, SEEK_SET);
-    char *deleted_record = (char *)malloc(table->row_size_in_bytes);
-    memset(deleted_record, 0, table->row_size_in_bytes); // Set all bytes to 0
-    fwrite(deleted_record, 1, table->row_size_in_bytes, file);
-
-    table->record_size--;
-    table->free_spaces[table->free_spaces_count] = pos;
-    table->free_spaces_count++;
-    if (update_table_metadata_free_spaces(table) != 0)
+    if (delete_record_from_file(table, he->file_pos) != 0)
     {
-        printf("Failed to update free spaces in metadata file\n");
-        free(deleted_record);
+        printf("Failed to delete record from file\n");
         fclose(file);
         va_end(args);
         return -1;
     }
 
-    free(deleted_record);
+    table->record_size--;
+    table->free_spaces[table->free_spaces_count] = he->file_pos;
+    table->free_spaces_count++;
+    if (update_table_metadata_free_spaces(table) != 0)
+    {
+        printf("Failed to update free spaces in metadata file\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+    if (update_table_metadata_record_size(table) != 0)
+    {
+        printf("Failed to update record size in metadata file\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+    if (update_table_metadata_free_spaces_count(table) != 0)
+    {
+        printf("Failed to update free spaces count in metadata file\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    // Update the hash table file
+    if (delete_hash_entry(table->hash, he) != 0)
+    {
+        printf("Failed to delete hash entry\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    if (delete_entry_from_hashmap_file(table, he) != 0)
+    {
+        printf("Failed to delete entry from hashmap file\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
+    if (update_hashmap_file_entries(table) != 0)
+    {
+        printf("Failed to update hashmap file entries\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+    if (update_hashmap_file_free_spaces_count(table) != 0)
+    {
+        printf("Failed to update hashmap file free spaces count\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+    if (update_hashmap_file_free_spaces(table) != 0)
+    {
+        printf("Failed to update hashmap file free spaces\n");
+        fclose(file);
+        va_end(args);
+        return -1;
+    }
+
     fflush(file);
     fclose(file);
     va_end(args);

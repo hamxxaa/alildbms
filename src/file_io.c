@@ -15,7 +15,7 @@ FILE *open_file(const char *table_name, const char *exit, const char *mode)
     return file;
 }
 
-int create_hashmap_file(Table *table)
+int create_hashmap_file(const Table *table)
 {
     FILE *file = open_file(table->table_name, "hashmap", "wb+");
     if (!file)
@@ -25,13 +25,18 @@ int create_hashmap_file(Table *table)
 
     fwrite(&(table->hash->size), sizeof(int), 1, file);
     fwrite(&(table->hash->entries), sizeof(int), 1, file);
+    fwrite(&(table->hash->free_hash_spaces_count), sizeof(int), 1, file);
+    for (int i = 0; i < DEFAULT_FREE_HASH_SPACES; i++)
+    {
+        fwrite(&(table->hash->free_hash_spaces[i]), sizeof(long), 1, file);
+    }
 
     fflush(file);
     fclose(file);
     return 0;
 }
 
-int create_bin_file(Table *table)
+int create_bin_file(const Table *table)
 {
     FILE *file = open_file(table->table_name, "bin", "wb+");
     if (!file)
@@ -44,7 +49,7 @@ int create_bin_file(Table *table)
     return 0;
 }
 
-int store_table_metadata(Table *table)
+int store_table_metadata(const Table *table)
 {
     FILE *file = open_file(table->table_name, "metadata", "wb+");
     if (!file)
@@ -57,6 +62,7 @@ int store_table_metadata(Table *table)
     fwrite(&table->record_size, sizeof(int), 1, file);
     fwrite(&table->row_size_in_bytes, sizeof(int), 1, file);
     fwrite(&table->primary_key, sizeof(Column), 1, file);
+    fwrite(&table->free_spaces_count, sizeof(int), 1, file);
     for (int i = 0; i < table->columns_count; i++)
     {
         fwrite(&table->columns[i], sizeof(Column), 1, file);
@@ -71,7 +77,7 @@ int store_table_metadata(Table *table)
     return 0;
 }
 
-int update_table_metadata_record_size(Table *table)
+int update_table_metadata_record_size(const Table *table)
 {
     FILE *file = open_file(table->table_name, "metadata", "rb+");
     if (!file)
@@ -79,7 +85,7 @@ int update_table_metadata_record_size(Table *table)
         return -1;
     }
 
-    fseek(file, sizeof(int) + sizeof(char) * MAX_NAME_LEN, SEEK_SET);
+    fseek(file, sizeof(char) * MAX_NAME_LEN + sizeof(int), SEEK_SET);
     fwrite(&table->record_size, sizeof(int), 1, file);
 
     fflush(file);
@@ -87,7 +93,7 @@ int update_table_metadata_record_size(Table *table)
     return 0;
 }
 
-int update_hashmap_file_entries(Table *table)
+int update_hashmap_file_entries(const Table *table)
 {
     FILE *file = open_file(table->table_name, "hashmap", "rb+");
     if (!file)
@@ -103,7 +109,7 @@ int update_hashmap_file_entries(Table *table)
     return 0;
 }
 
-int update_table_metadata_free_spaces(Table *table)
+int update_table_metadata_free_spaces_count(const Table *table)
 {
     FILE *file = open_file(table->table_name, "metadata", "rb+");
     if (!file)
@@ -111,15 +117,66 @@ int update_table_metadata_free_spaces(Table *table)
         return -1;
     }
 
-    fseek(file, sizeof(int) + sizeof(char) * MAX_NAME_LEN + sizeof(int) * 3 + sizeof(Column) * table->columns_count, SEEK_SET);
-    fwrite(table->free_spaces, sizeof(long) + sizeof(int), MAX_FREE_SPACES, file);
+    fseek(file, sizeof(char) * MAX_NAME_LEN + sizeof(int) * 3 + sizeof(Column), SEEK_SET);
+    fwrite(&table->free_spaces_count, sizeof(int), 1, file);
 
     fflush(file);
     fclose(file);
     return 0;
 }
 
-int insert_to_hashmap_file(Table *table, const HashEntry *he)
+int update_table_metadata_free_spaces(const Table *table)
+{
+    FILE *file = open_file(table->table_name, "metadata", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, sizeof(char) * MAX_NAME_LEN + sizeof(int) * 4 + sizeof(Column) * (table->columns_count + 1) + sizeof(long) * (table->free_spaces_count - 1), SEEK_SET);
+    fwrite(table->free_spaces, sizeof(long), 1, file);
+
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int update_hashmap_file_free_spaces_count(const Table *table)
+{
+    FILE *file = open_file(table->table_name, "hashmap", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, sizeof(int) * 2, SEEK_SET);
+    fwrite(&table->hash->free_hash_spaces_count, sizeof(int), 1, file);
+    fseek(file, sizeof(int) * 2, SEEK_SET);
+    int a;
+    fread(&a, sizeof(int), 1, file);
+
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int update_hashmap_file_free_spaces(const Table *table)
+{
+    FILE *file = open_file(table->table_name, "hashmap", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, sizeof(int) * 3 + sizeof(long) * (table->hash->free_hash_spaces_count - 1), SEEK_SET);
+    fwrite(table->hash->free_hash_spaces, sizeof(long), 1, file);
+
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int insert_to_hashmap_file(const Table *table, HashEntry *he)
 {
     FILE *file = open_file(table->table_name, "hashmap", "ab");
     if (!file)
@@ -127,6 +184,17 @@ int insert_to_hashmap_file(Table *table, const HashEntry *he)
         return -1;
     }
 
+    if (table->hash->free_hash_spaces_count > 0)
+    {
+        he->hash_entry_pos = table->hash->free_hash_spaces[--table->hash->free_hash_spaces_count];
+        table->hash->free_hash_spaces[table->hash->free_hash_spaces_count] = -1; // Mark as used
+        table->hash->free_hash_spaces_count--;
+    }
+    else
+    {
+        he->hash_entry_pos = ftell(file);
+    }
+    fseek(file, he->hash_entry_pos, SEEK_SET);
     fwrite(he, sizeof(HashEntry) - sizeof(struct HashEntry *), 1, file);
 
     fflush(file);
@@ -140,7 +208,7 @@ int insert_to_hashmap_file(Table *table, const HashEntry *he)
     return 0;
 }
 
-HashTable *read_hashmap_file(Table *table)
+HashTable *read_hashmap_file(const Table *table)
 {
     FILE *file = open_file(table->table_name, "hashmap", "rb");
     if (!file)
@@ -151,6 +219,11 @@ HashTable *read_hashmap_file(Table *table)
     HashTable *hash = create_hashtable(DEFAULT_TABLE_SIZE);
     fread(&(hash->size), sizeof(int), 1, file);
     fread(&(hash->entries), sizeof(int), 1, file);
+    fread(&(hash->free_hash_spaces_count), sizeof(int), 1, file);
+    for (int i = 0; i < DEFAULT_FREE_HASH_SPACES; i++)
+    {
+        fread(&(hash->free_hash_spaces[i]), sizeof(long), 1, file);
+    }
 
     for (int i = 0; i < hash->entries; i++)
     {
@@ -206,6 +279,7 @@ Table *read_table_metadata(const char *tablename)
     fread(&table->record_size, sizeof(int), 1, file);
     fread(&table->row_size_in_bytes, sizeof(int), 1, file);
     fread(&table->primary_key, sizeof(Column), 1, file);
+    fread(&table->free_spaces_count, sizeof(int), 1, file);
     for (int i = 0; i < table->columns_count; i++)
     {
         fread(&table->columns[i], sizeof(Column), 1, file);
@@ -240,5 +314,43 @@ int write_string_to_file(FILE *file, const char *val, int length)
 
     fwrite(str_copy, length + 1, 1, file);
     free(str_copy);
+    return 0;
+}
+
+int delete_entry_from_hashmap_file(const Table *table, const HashEntry *he)
+{
+    FILE *file = open_file(table->table_name, "hashmap", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, he->hash_entry_pos, SEEK_SET);
+    char *deleted_hash_entry = (char *)malloc(sizeof(HashEntry) - sizeof(struct HashEntry *));
+    memset(deleted_hash_entry, 0, sizeof(HashEntry) - sizeof(struct HashEntry *)); // Set all bytes to 0
+    fwrite(deleted_hash_entry, 1, sizeof(HashEntry) - sizeof(struct HashEntry *), file);
+
+    fflush(file);
+    fclose(file);
+    free(deleted_hash_entry);
+    return 0;
+}
+
+int delete_record_from_file(const Table *table, long pos)
+{
+    FILE *file = open_file(table->table_name, "bin", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, pos, SEEK_SET);
+    char *deleted_record = (char *)malloc(table->row_size_in_bytes);
+    memset(deleted_record, 0, table->row_size_in_bytes); // Set all bytes to 0
+    fwrite(deleted_record, 1, table->row_size_in_bytes, file);
+
+    fflush(file);
+    fclose(file);
+    free(deleted_record);
     return 0;
 }

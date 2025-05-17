@@ -21,6 +21,11 @@ HashTable *create_hashtable(const int size)
         free(ht);
         return NULL;
     }
+    ht->free_hash_spaces_count = 0;
+    for (int i = 0; i < DEFAULT_FREE_HASH_SPACES; i++)
+    {
+        ht->free_hash_spaces[i] = -1;
+    }
     return ht;
 }
 
@@ -45,7 +50,7 @@ HashEntry *create_hash_entry(HashTable *hashmap, const Key key, const uint32_t h
         {
             current = current->next;
         }
-        hashmap->buckets[index]->next = he;
+        current = he;
     }
     else
     {
@@ -70,4 +75,39 @@ HashEntry *find_right_entry_in_bucket(HashTable *hash, const Key key, const uint
         he = he->next;
     }
     return NULL; // Not found
+}
+
+int delete_hash_entry(HashTable *hash, HashEntry *entry)
+{
+    if (!hash || !entry)
+    {
+        return -1; // Invalid parameters
+    }
+
+    uint32_t hash_value = entry->hash;
+    int index = hash_value % hash->size;
+    HashEntry *current = hash->buckets[index];
+    HashEntry *prev = NULL;
+    while (current)
+    {
+        if (current == entry)
+        {
+            if (prev)
+            {
+                prev->next = current->next;
+            }
+            else
+            {
+                hash->buckets[index] = current->next;
+            }
+            free(current);
+            hash->entries--;
+            hash->free_hash_spaces[hash->free_hash_spaces_count] = entry->hash_entry_pos;
+            hash->free_hash_spaces_count++;
+            return 0; // Successfully deleted
+        }
+        prev = current;
+        current = current->next;
+    }
+    return -1; // Entry not found
 }

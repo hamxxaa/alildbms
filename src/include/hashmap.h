@@ -2,6 +2,7 @@
 #define HASHMAP_H
 
 #include <stdint.h>
+#define DEFAULT_FREE_HASH_SPACES 500
 
 struct Table; // Forward declaration of Table struct
 
@@ -16,6 +17,7 @@ typedef struct HashEntry
     Key key;
     uint32_t hash;
     long file_pos;
+    long hash_entry_pos;
     struct HashEntry *next;
 } HashEntry;
 
@@ -24,6 +26,8 @@ typedef struct
     int size;
     int entries;
     HashEntry **buckets;
+    long free_hash_spaces[DEFAULT_FREE_HASH_SPACES];
+    int free_hash_spaces_count;
 } HashTable;
 
 /**
@@ -55,4 +59,12 @@ HashEntry *create_hash_entry(HashTable *hashmap, const Key key, const uint32_t h
  */
 HashEntry *find_right_entry_in_bucket(HashTable *hash, const Key key, const uint32_t hash_value);
 
+/**
+ * @brief Delete entry from hashmap and arrange pointers in the same bucket
+ *
+ * @param table The table to delete the entry from.
+ * @param he The hash entry to delete.
+ * @return int 0 on success, -1 on failure.
+ */
+int delete_hash_entry(HashTable *hash, HashEntry *entry);
 #endif
