@@ -67,4 +67,12 @@ HashEntry *find_right_entry_in_bucket(HashTable *hash, const Key key, const uint
  * @return int 0 on success, -1 on failure.
  */
 int delete_hash_entry(HashTable *hash, HashEntry *entry);
+
+/**
+ * @brief Delete the entire hash table and free its memory.
+ *
+ * @param hash The hash table to delete.
+ * @return int 0 on success, -1 on failure.
+ */
+int free_hashtable(HashTable *hash);
 #endif

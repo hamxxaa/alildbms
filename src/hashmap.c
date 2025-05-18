@@ -100,14 +100,35 @@ int delete_hash_entry(HashTable *hash, HashEntry *entry)
             {
                 hash->buckets[index] = current->next;
             }
-            free(current);
             hash->entries--;
             hash->free_hash_spaces[hash->free_hash_spaces_count] = entry->hash_entry_pos;
             hash->free_hash_spaces_count++;
+            free(current);
             return 0; // Successfully deleted
         }
         prev = current;
         current = current->next;
     }
     return -1; // Entry not found
+}
+
+int free_hashtable(HashTable *hash)
+{
+    if (!hash)
+    {
+        return -1; // Invalid parameter
+    }
+    for (int i = 0; i < hash->size; i++)
+    {
+        HashEntry *current = hash->buckets[i];
+        while (current)
+        {
+            HashEntry *temp = current;
+            current = current->next;
+            free(temp);
+        }
+    }
+    free(hash->buckets);
+    free(hash);
+    return 0;
 }

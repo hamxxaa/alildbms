@@ -141,4 +141,28 @@ int update_hashmap_file_free_spaces_count(const Table *table);
  */
 int update_hashmap_file_free_spaces(const Table *table);
 
+/**
+ * @brief Read all data from the binary file of the table.
+ *
+ * @param table The table whose binary file is to be read.
+ * @return char* Pointer to the read data, or NULL on failure.
+ */
+char *read_all_bin_file(const Table *table);
+
+/**
+ * @brief Print the values of the specified columns in the table.
+ *
+ * @param table The table to print the values from.
+ * @param columns The columns to print.
+ * @param columns_count The number of columns to print.
+ */
+void print_values_of(const Table *table, Column **columns, int columns_count);
+
+/**
+ * @brief Print all columns of the table.
+ *
+ * @param table The table to print the columns of.
+ */
+void print_all_columns(const Table *table);
+
 #endif

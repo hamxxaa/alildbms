@@ -4,7 +4,7 @@
 #define MAX_COLUMN_COUNT 20
 #define MAX_NAME_LEN 50
 #define DEFAULT_TABLE_SIZE 1000
-#define MAX_FREE_SPACES DEFAULT_TABLE_SIZE / 2
+#define MAX_FREE_SPACES 500
 
 #include "hashmap.h"
 #include "fnv_hash.h"
@@ -106,9 +106,10 @@ int check_column_exists(const Table *table, const Column column);
  *
  * @param table The table to check in.
  * @param column_name The name of the column to check for.
- * @return int 1 if the column exists, 0 otherwise.
+ * @return Column The column if it exists, NULL otherwise.
+ *        Note: The caller is responsible for freeing the returned column.
  */
-int check_column_exists_by_name(const Table *table, const char *column_name);
+Column *check_column_exists_by_name(const Table *table, const char *column_name);
 
 /**
  * @brief Calculate the offset of a column in the table.
@@ -155,5 +156,32 @@ int cmpcolumns(const Column a, const Column b);
  * @return int 0 on success, -1 on failure.
  */
 int delete_record(Table *table, ...);
+
+/**
+ * @brief Delete a table and free its memory.
+ *
+ * @param table The table to delete.
+ * @return int 0 on success, -1 on failure.
+ */
+int free_table(Table *table);
+
+/**
+ * @brief Like insert_record but takes an array of values.
+ *
+ * @param table The table to insert the record into.
+ * @param values The array of values to insert into the record.
+ * @return int 0 on success, -1 on failure.
+ */
+int insert_record_array(Table *table, void **values);
+
+/**
+ * @brief Create a temporary table with the given name and columns.
+ *
+ * @param table_name The name of the temporary table.
+ * @param columns The columns of the temporary table.
+ * @param columns_count The number of columns in the temporary table.
+ * @return Table* Pointer to the created temporary table.
+ */
+Table *create_temp_table(const char *table_name, const Column *columns, const int columns_count);
 
 #endif

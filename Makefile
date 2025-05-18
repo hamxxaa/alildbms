@@ -31,6 +31,9 @@ clean:
 fclean: clean
 	rm -rf $(HASH_DIR)/* $(META_DIR)/* $(BIN_DIR)/*
 
+valgrind: $(EXECUTABLE)
+	valgrind --leak-check=full --track-origins=yes --show-leak-kinds=all --verbose ./$(EXECUTABLE)
+
 # Generate dependencies for header files
 -include $(OBJECTS:.o=.d)
 

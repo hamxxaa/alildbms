@@ -2,10 +2,14 @@
 #include "file_io.h"
 #include "fnv_hash.h"
 #include "hashmap.h"
+#include "sql_tokenizer.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-void print_table(Table *user_table)
+Table *tables[10] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+int table_count = 0;
+
+void print_tableasd(Table *user_table)
 {
     printf("Table name: %s\n", user_table->table_name);
     printf("Columns: ");
@@ -75,10 +79,10 @@ void other_print(Table *user_table)
 
 void insert(Table *user_table)
 {
-    if (insert_record(user_table, 1, "Alice", 25, "mailll") != 0)
-    {
-        printf("Failed to insert record 1\n");
-    }
+    // if (insert_record(user_table, 1, "Alice", 25, "mailll") != 0)
+    // {
+    //     printf("Failed to insert record 1\n");
+    // }
     if (insert_record(user_table, 2, "Bob", 30, "maill") != 0)
     {
         printf("Failed to insert record 2\n");
@@ -152,6 +156,7 @@ Table *create()
         printf("Failed to create table\n");
         return NULL;
     }
+    tables[table_count++] = user_table;
     return user_table;
 }
 
@@ -179,13 +184,45 @@ void create_test()
         return;
     };
     insert(user_table);
-    search_and_print(user_table);
-    deletetest(user_table);
 }
+
 int main()
 {
-    // create_test();
-    Table *user_table = load();
-    search_and_print(user_table);
-    return 0;
+    create_test();
+    char *query = "SELECT * FROM users;";
+    printf("Query: %s\n", query);
+    int token_count = 0;
+    Token *tokens = tokenize(query, &token_count);
+    if (parser(tokens, token_count, tables, table_count) == -1)
+    {
+        printf("Failed to parse query\n");
+        free(tokens);
+        return -1;
+    }
+
+    char *query2 = "INSERT INTO users VALUES (1, 'Alice', 25, 'mail');";
+    printf("Query: %s\n", query2);
+    int token_count2 = 0;
+    Token *tokens2 = tokenize(query2, &token_count2);
+    if (parser(tokens2, token_count2, tables, table_count) == -1)
+    {
+        printf("Failed to parse query\n");
+        free(tokens2);
+        return -1;
+    }
+
+    char *query3 = "SELECT * FROM users;";
+    printf("Query: %s\n", query3);
+    int token_count3 = 0;
+    Token *tokens3 = tokenize(query3, &token_count3);
+    // for (int i = 0; i < token_count; i++)
+    // {
+    //     printf("Token %d: Type: %d, Value: %s\n", i, tokens[i].type, tokens[i].token);
+    // }
+    if (parser(tokens3, token_count3, tables, table_count) == -1)
+    {
+        printf("Failed to parse query\n");
+        free(tokens3);
+        return -1;
+    }
 }

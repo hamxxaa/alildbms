@@ -70,7 +70,7 @@ Table *create_table(const char *table_name, const Column *columns, const int col
     table->free_spaces_count = 0;
     for (int i = 0; i < MAX_FREE_SPACES; i++)
     {
-        table->free_spaces[i] = -1;
+        table->free_spaces[i] = -1L;
     }
     table->hash = create_hashtable(DEFAULT_TABLE_SIZE);
     if (!table->hash)
@@ -81,6 +81,43 @@ Table *create_table(const char *table_name, const Column *columns, const int col
     }
     table->row_size_in_bytes = calculate_row_size_in_bytes(columns, columns_count);
     create_initial_files_for_table(table);
+
+    return table;
+}
+
+Table *create_temp_table(const char *table_name, const Column *columns, const int columns_count)
+{
+    Table *table = (Table *)malloc(sizeof(Table));
+    if (!table)
+    {
+        perror("Failed to allocate table");
+        return NULL;
+    }
+
+    strncpy(table->table_name, table_name, MAX_NAME_LEN);
+    for (int i = 0; i < columns_count; i++)
+    {
+        strncpy(table->columns[i].name, columns[i].name, MAX_NAME_LEN);
+        table->columns[i].type = columns[i].type;
+        table->columns[i].lenght = columns[i].lenght;
+    }
+    table->record_size = 0;
+    table->columns_count = columns_count;
+    table->free_spaces_count = 0;
+    for (int i = 0; i < MAX_FREE_SPACES; i++)
+    {
+        table->free_spaces[i] = -1L;
+    }
+    table->hash = create_hashtable(DEFAULT_TABLE_SIZE);
+    if (!table->hash)
+    {
+        perror("Failed to create hash table");
+        free(table);
+        return NULL;
+    }
+    table->row_size_in_bytes = calculate_row_size_in_bytes(columns, columns_count);
+
+    create_bin_file(table);
 
     return table;
 }
@@ -181,6 +218,97 @@ int insert_record(Table *table, ...)
 
     va_end(args);
     fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int insert_record_array(Table *table, void **values)
+{
+    FILE *file = open_file(table->table_name, "bin", "ab");
+    if (!file)
+    {
+        return -1;
+    }
+
+    Key key;
+    uint32_t hash;
+    long pos;
+    if (table->free_spaces_count > 0)
+    {
+        // Use the first free space
+        pos = table->free_spaces[table->free_spaces_count - 1];
+        table->free_spaces[table->free_spaces_count - 1] = -1; // Mark as used
+        table->free_spaces_count--;
+        if (update_table_metadata_free_spaces(table) != 0)
+        {
+            printf("Failed to update free spaces in metadata file\n");
+            fclose(file);
+            return -1;
+        }
+        fseek(file, pos, SEEK_SET);
+    }
+    else
+    {
+        // Append to the end of the file
+        pos = ftell(file);
+    }
+
+    // Write each column value based on its type
+    for (int i = 0; i < table->columns_count; i++)
+    {
+        switch (table->columns[i].type)
+        {
+        case INT:
+        {
+            int val = *((int *)values[i]);
+            fwrite(&val, sizeof(int), 1, file);
+            if (cmpcolumns(table->columns[i], table->primary_key) == 0)
+            {
+                key.int_key = val;
+                hash = fnv1a_hash_int(val);
+            }
+            break;
+        }
+        case STRING:
+        {
+            char *str = (char *)values[i];
+            if (write_string_to_file(file, str, table->columns[i].lenght) != 0)
+            {
+                printf("Failed to write string to file\n");
+                fclose(file);
+                return -1;
+            }
+            if (strcmp(table->columns[i].name, table->primary_key.name) == 0)
+            {
+                key.char_key = str;
+                hash = fnv1a_hash_str(str);
+            }
+            break;
+        }
+        }
+    }
+
+    HashEntry *he = create_hash_entry(table->hash, key, hash, pos);
+    table->record_size++;
+
+    // Update the record size in the metadata file
+    if (update_table_metadata_record_size(table) != 0)
+    {
+        perror("Failed to update record size in metadata file");
+        free(he);
+        fclose(file);
+        return -1;
+    }
+
+    // Update the hash table file
+    if (insert_to_hashmap_file(table, he) != 0)
+    {
+        perror("Failed to insert to hashmap file");
+        free(he);
+        fclose(file);
+        return -1;
+    }
+
     fclose(file);
     return 0;
 }
@@ -286,16 +414,25 @@ int check_column_exists(const Table *table, const Column column)
     return 0; // Column does not exist
 }
 
-int check_column_exists_by_name(const Table *table, const char *column_name)
+Column *check_column_exists_by_name(const Table *table, const char *column_name)
 {
     for (int i = 0; i < table->columns_count; i++)
     {
         if (strcmp(table->columns[i].name, column_name) == 0)
         {
-            return 1; // Column exists
+            Column *col = (Column *)malloc(sizeof(Column));
+            if (!col)
+            {
+                perror("Failed to allocate memory for column");
+                return NULL;
+            }
+            strncpy(col->name, table->columns[i].name, MAX_NAME_LEN);
+            col->type = table->columns[i].type;
+            col->lenght = table->columns[i].lenght;
+            return col; // Column exists
         }
     }
-    return 0; // Column does not exist
+    return NULL; // Column does not exist
 }
 
 int cmpcolumns(const Column a, const Column b)
@@ -493,17 +630,18 @@ int delete_record(Table *table, ...)
     }
 
     // Update the hash table file
-    if (delete_hash_entry(table->hash, he) != 0)
+
+    if (delete_entry_from_hashmap_file(table, he) != 0)
     {
-        printf("Failed to delete hash entry\n");
+        printf("Failed to delete entry from hashmap file\n");
         fclose(file);
         va_end(args);
         return -1;
     }
 
-    if (delete_entry_from_hashmap_file(table, he) != 0)
+    if (delete_hash_entry(table->hash, he) != 0)
     {
-        printf("Failed to delete entry from hashmap file\n");
+        printf("Failed to delete hash entry\n");
         fclose(file);
         va_end(args);
         return -1;
@@ -534,5 +672,15 @@ int delete_record(Table *table, ...)
     fflush(file);
     fclose(file);
     va_end(args);
+    return 0;
+}
+
+int free_table(Table *table)
+{
+    if (!table)
+    {
+        return -1;
+    }
+    free(table);
     return 0;
 }

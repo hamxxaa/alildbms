@@ -15,6 +15,166 @@ FILE *open_file(const char *table_name, const char *exit, const char *mode)
     return file;
 }
 
+void print_all_columns(const Table *table)
+{
+    FILE *file = open_file(table->table_name, "bin", "rb");
+    if (!file)
+    {
+        printf("Could not open file for table %s\n", table->table_name);
+        return;
+    }
+
+    int columns_count = table->columns_count;
+    int col_widths[columns_count];
+
+    // Set fixed widths: 12 for INT, 20 for STRING (or column length if longer)
+    for (int i = 0; i < columns_count; i++)
+    {
+        if (table->columns[i].type == INT)
+            col_widths[i] = 12;
+        else if (table->columns[i].type == STRING)
+            col_widths[i] = table->columns[i].lenght > 20 ? table->columns[i].lenght : 20;
+        int name_len = strlen(table->columns[i].name);
+        if (name_len > col_widths[i])
+            col_widths[i] = name_len;
+    }
+
+    // Print header
+    for (int i = 0; i < columns_count; i++)
+        printf("%-*s ", col_widths[i], table->columns[i].name);
+    printf("\n");
+
+    // Print separator
+    for (int i = 0; i < columns_count; i++)
+    {
+        for (int j = 0; j < col_widths[i]; j++)
+            printf("-");
+        printf(" ");
+    }
+    printf("\n");
+
+    // Print rows
+    for (int rec = 0; rec < table->record_size; rec++)
+    {
+        long row_start = rec * table->row_size_in_bytes;
+        long offset = 0;
+        for (int col = 0; col < columns_count; col++)
+        {
+            fseek(file, row_start + offset, SEEK_SET);
+            switch (table->columns[col].type)
+            {
+            case INT:
+            {
+                int val;
+                fread(&val, sizeof(int), 1, file);
+                printf("%-*d ", col_widths[col], val);
+                offset += sizeof(int);
+                break;
+            }
+            case STRING:
+            {
+                char *str = (char *)malloc(table->columns[col].lenght + 1);
+                if (!str)
+                {
+                    fclose(file);
+                    printf("Memory allocation failed\n");
+                    return;
+                }
+                fread(str, sizeof(char), table->columns[col].lenght, file);
+                str[table->columns[col].lenght] = '\0';
+                printf("%-*s ", col_widths[col], str);
+                free(str);
+                offset += table->columns[col].lenght + 1;
+                break;
+            }
+            }
+        }
+        printf("\n");
+    }
+    printf("\n");
+    fclose(file);
+}
+
+void print_values_of(const Table *table, Column **columns, int columns_count)
+{
+    FILE *file = open_file(table->table_name, "bin", "rb");
+    if (!file)
+    {
+        return;
+    }
+    int columns_offset[columns_count];
+    int col_widths[columns_count];
+    for (int i = 0; i < columns_count; i++)
+    {
+        columns_offset[i] = calculate_offset(table, *columns[i]);
+        // left align the column name
+        if (columns_offset[i] == -1)
+        {
+            printf("Column %s not found\n", columns[i]->name);
+            fclose(file);
+            return;
+        }
+        if (columns[i]->type == INT)
+            col_widths[i] = 12;
+        else if (columns[i]->type == STRING)
+            col_widths[i] = columns[i]->lenght > 20 ? columns[i]->lenght : 20;
+        // Ensure column name fits
+        int name_len = strlen(columns[i]->name);
+        if (name_len > col_widths[i])
+            col_widths[i] = name_len;
+    }
+
+    // Print header
+    for (int i = 0; i < columns_count; i++)
+        printf("%-*s ", col_widths[i], columns[i]->name);
+    printf("\n");
+
+    // Print separator
+    for (int i = 0; i < columns_count; i++)
+    {
+        for (int j = 0; j < col_widths[i]; j++)
+            printf("-");
+        printf(" ");
+    }
+    printf("\n");
+
+    // Print rows
+    for (int i = 0; i < table->record_size; i++)
+    {
+        for (int j = 0; j < columns_count; j++)
+        {
+            fseek(file, i * table->row_size_in_bytes + columns_offset[j], SEEK_SET);
+            switch (columns[j]->type)
+            {
+            case INT:
+            {
+                int val;
+                fread(&val, sizeof(int), 1, file);
+                printf("%-*d ", col_widths[j], val);
+                break;
+            }
+            case STRING:
+            {
+                char *str = (char *)malloc(columns[j]->lenght + 1);
+                if (!str)
+                {
+                    fclose(file);
+                    return;
+                }
+                fread(str, sizeof(char), columns[j]->lenght, file);
+                str[columns[j]->lenght] = '\0';
+                printf("%-*s ", col_widths[j], str);
+                free(str);
+                break;
+            }
+            }
+        }
+        printf("\n");
+    }
+    printf("\n");
+    fclose(file);
+}
+
 int create_hashmap_file(const Table *table)
 {
     FILE *file = open_file(table->table_name, "hashmap", "wb+");
@@ -47,6 +207,30 @@ int create_bin_file(const Table *table)
     fflush(file);
     fclose(file);
     return 0;
+}
+
+char *read_all_bin_file(const Table *table)
+{
+    FILE *file = open_file(table->table_name, "bin", "rb");
+    if (!file)
+    {
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    char *buffer = (char *)malloc(file_size);
+    if (!buffer)
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    fread(buffer, sizeof(char), file_size, file);
+    fclose(file);
+    return buffer;
 }
 
 int store_table_metadata(const Table *table)
