@@ -110,10 +110,10 @@ Token *tokenize(const char *sql, int *out_count)
             sql += 2;
             tokens[token_count++] = token;
         }
-        else if (strncmp(sql, "!=", 2) == 0)
+        else if (strncmp(sql, "<>", 2) == 0)
         {
             token.type = TOKEN_NE;
-            strcpy(token.token, "!=");
+            strcpy(token.token, "<>");
             sql += 2;
             tokens[token_count++] = token;
         }
@@ -547,53 +547,135 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
     }
     return -1;
 }
+static int compare_values(TokenType op, int actual_int, const char *actual_str, const char *expected_str, int is_string)
+{
+    if (is_string)
+    {
+        int cmp = strcmp(actual_str, expected_str);
+        switch (op)
+        {
+        case TOKEN_EQ: return cmp == 0;
+        case TOKEN_NE: return cmp != 0;
+        case TOKEN_LT: return cmp < 0;
+        case TOKEN_LE: return cmp <= 0;
+        case TOKEN_GT: return cmp > 0;
+        case TOKEN_GE: return cmp >= 0;
+        default: return 0;
+        }
+    }
+    else
+    {
+        int expected_int = atoi(expected_str);
+        switch (op)
+        {
+        case TOKEN_EQ: return actual_int == expected_int;
+        case TOKEN_NE: return actual_int != expected_int;
+        case TOKEN_LT: return actual_int < expected_int;
+        case TOKEN_LE: return actual_int <= expected_int;
+        case TOKEN_GT: return actual_int > expected_int;
+        case TOKEN_GE: return actual_int >= expected_int;
+        default: return 0;
+        }
+    }
+}
 
 int parse_where(Token *tokens, int token_count, int *iterator, Table **tables, int table_count)
 {
-    // TODO: Implement WHERE clause parsing. THIS IS NOT IMPLEMENTED YET
-    //  Check for the identifier (column name)
+    // Check for table and column
     if (tokens[*iterator].type != TOKEN_IDENTIFIER)
     {
         printf("Error: Expected column name after WHERE\n");
         return -1;
     }
+    char *column_name = tokens[*iterator].token;
     (*iterator)++;
-    // Check for the operator
-    TokenType operators[20];
-    char *values[20];
-    int operator_count = 0;
-    while (tokens[*iterator].type == TOKEN_EQ || tokens[*iterator].type == TOKEN_GT || tokens[*iterator].type == TOKEN_LT || tokens[*iterator].type == TOKEN_GE || tokens[*iterator].type == TOKEN_LE || tokens[*iterator].type == TOKEN_NE)
-    {
-        operators[operator_count] = tokens[*iterator].type;
-        (*iterator)++;
-        // Check for the value
-        if (tokens[*iterator].type != TOKEN_NUMBER && tokens[*iterator].type != TOKEN_STRING)
-        {
-            printf("Error: Expected value after operator\n");
-            return -1;
-        }
-        values[operator_count] = strdup(tokens[*iterator].token);
-        operator_count++;
-        (*iterator)++;
-    }
-    // Check for the value
-    if (tokens[*iterator].type != TOKEN_NUMBER)
+
+    TokenType op = tokens[*iterator].type;
+    (*iterator)++;
+
+    if (tokens[*iterator].type != TOKEN_STRING && tokens[*iterator].type != TOKEN_NUMBER)
     {
         printf("Error: Expected value after operator\n");
         return -1;
     }
-    else
-    {
-    }
+    char *value = tokens[*iterator].token;
     (*iterator)++;
 
-    // Check for the semicolon
-    if (tokens[*iterator].type != TOKEN_SEMICOLON)
+    if (tokens[*iterator].type != TOKEN_FROM)
     {
-        printf("Error: Expected semicolon at the end of WHERE clause\n");
+        printf("Error: Expected FROM keyword after WHERE clause\n");
         return -1;
     }
     (*iterator)++;
+
+    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    {
+        printf("Error: Expected table name after FROM\n");
+        return -1;
+    }
+
+    // Find table
+    Table *table = NULL;
+    for (int i = 0; i < table_count; i++)
+    {
+        if (strcmp(tables[i]->table_name, tokens[*iterator].token) == 0)
+        {
+            table = tables[i];
+            (*iterator)++;
+            break;
+        }
+    }
+    if (!table)
+    {
+        printf("Error: Table not found\n");
+        return -1;
+    }
+
+    // Find column
+    Column *col = check_column_exists_by_name(table, column_name);
+    if (!col)
+    {
+        printf("Error: Column %s does not exist\n", column_name);
+        return -1;
+    }
+
+    int offset = calculate_offset(table, *col);
+    FILE *file = open_file(table->table_name, "bin", "rb");
+    if (!file)
+    {
+        return -1;
+    }
+
+    for (int i = 0; i < table->record_size; i++)
+    {
+        fseek(file, i * table->row_size_in_bytes + offset, SEEK_SET);
+        int matched = 0;
+        if (col->type == INT)
+        {
+            int actual;
+            fread(&actual, sizeof(int), 1, file);
+            matched = compare_values(op, actual, NULL, value, 0);
+        }
+        else if (col->type == STRING)
+        {
+            char *actual = malloc(col->lenght + 1);
+            fread(actual, sizeof(char), col->lenght, file);
+            actual[col->lenght] = '\0';
+            matched = compare_values(op, 0, actual, value, 1);
+            free(actual);
+        }
+
+        if (matched)
+        {
+            fseek(file, i * table->row_size_in_bytes, SEEK_SET);
+            char *row = malloc(table->row_size_in_bytes);
+              fread(row, 1, table->row_size_in_bytes, file);
+            print_row_readable(table, row);
+            free(row);
+        }
+    }
+
+    fclose(file);
     return 0;
 }
 
