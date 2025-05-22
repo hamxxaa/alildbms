@@ -153,10 +153,10 @@ Token *tokenize(const char *sql, int *out_count)
             sql += 2;
             tokens[token_count++] = token;
         }
-        else if (strncmp(sql, "!=", 2) == 0)
+        else if (strncmp(sql, "<>", 2) == 0)
         {
             token.type = TOKEN_NE;
-            strcpy(token.token, "!=");
+            strcpy(token.token, "<>");
             sql += 2;
             tokens[token_count++] = token;
         }
