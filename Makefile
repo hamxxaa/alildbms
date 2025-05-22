@@ -1,6 +1,5 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g
-LDFLAGS = -lcjson
 
 SRC_DIR = src
 INCLUDE_DIR = src/include
@@ -15,7 +14,7 @@ EXECUTABLE = dbms
 
 # Ensure the object directory exists before building
 $(EXECUTABLE): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
+	$(CC) $(OBJECTS) -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
