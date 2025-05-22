@@ -140,7 +140,7 @@ long find_record_position(const Table *table, va_list args);
 int update_record(const Table *table, const Column column, ...);
 
 /**
- * @brief Compare two columns by their names.
+ * @brief Compare two columns by their fields.
  *
  * @param a The first column.
  * @param b The second column.

@@ -165,4 +165,7 @@ void print_values_of(const Table *table, Column **columns, int columns_count);
  */
 void print_all_columns(const Table *table);
 
+int add_table_to_tables(const char *table_name);
+int does_table_exists(const char *table_name);
+
 #endif

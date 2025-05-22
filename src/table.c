@@ -81,6 +81,7 @@ Table *create_table(const char *table_name, const Column *columns, const int col
     }
     table->row_size_in_bytes = calculate_row_size_in_bytes(columns, columns_count);
     create_initial_files_for_table(table);
+    add_table_to_tables(table_name);
 
     return table;
 }
@@ -437,7 +438,7 @@ Column *check_column_exists_by_name(const Table *table, const char *column_name)
 
 int cmpcolumns(const Column a, const Column b)
 {
-    return strcmp(a.name, b.name);
+    return strcmp(a.name, b.name) && a.type == b.type && a.lenght == b.lenght;
 }
 
 HashEntry *find_record_from_args(const Table *table, va_list args)

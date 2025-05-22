@@ -29,7 +29,7 @@ clean:
 	rm -rf $(OBJ_DIR) $(EXECUTABLE)
 
 fclean: clean
-	rm -rf $(HASH_DIR)/* $(META_DIR)/* $(BIN_DIR)/*
+	rm -rf $(HASH_DIR)/* $(META_DIR)/* $(BIN_DIR)/* .tables
 
 valgrind: $(EXECUTABLE)
 	valgrind --leak-check=full --track-origins=yes --show-leak-kinds=all --verbose ./$(EXECUTABLE)

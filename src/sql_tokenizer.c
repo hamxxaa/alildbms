@@ -47,6 +47,20 @@ Token *tokenize(const char *sql, int *out_count)
             sql += 6;
             tokens[token_count++] = token;
         }
+        else if (strncmp(sql, "CREATE", 6) == 0)
+        {
+            token.type = TOKEN_CREATE;
+            strcpy(token.token, "CREATE");
+            sql += 6;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "TABLE", 5) == 0)
+        {
+            token.type = TOKEN_TABLE;
+            strcpy(token.token, "TABLE");
+            sql += 5;
+            tokens[token_count++] = token;
+        }
         else if (strncmp(sql, "VALUES", 6) == 0)
         {
             token.type = TOKEN_VALUES;
@@ -75,6 +89,35 @@ Token *tokenize(const char *sql, int *out_count)
             sql += 4;
             tokens[token_count++] = token;
         }
+        else if (strncmp(sql, "PRIMARY", 7) == 0)
+        {
+            token.type = TOKEN_PRIMARY;
+            strcpy(token.token, "PRIMARY");
+            sql += 7;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "KEY", 3) == 0)
+        {
+            token.type = TOKEN_KEY;
+            strcpy(token.token, "KEY");
+            sql += 3;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "char", 4) == 0)
+        {
+            token.type = TOKEN_CHAR;
+            strcpy(token.token, "char");
+            sql += 4;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "int", 3) == 0)
+        {
+            token.type = TOKEN_INT;
+            strcpy(token.token, "int");
+            sql += 3;
+            tokens[token_count++] = token;
+        }
+
         else if (strncmp(sql, "INTO", 4) == 0)
         {
             token.type = TOKEN_INTO;
@@ -262,7 +305,7 @@ Token *tokenize(const char *sql, int *out_count)
     return tokens;
 }
 
-int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, int table_count)
+int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
 {
     if (token_count < 5)
     {
@@ -284,7 +327,7 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
 
     Table *target_table = NULL;
     // Check for the table name
-    for (int i = 0; i < table_count; i++)
+    for (int i = 0; i < *table_count; i++)
     {
         if (strcmp(tables[i]->table_name, tokens[*iterator].token) == 0)
         {
@@ -326,7 +369,7 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
         return -1;
     }
 
-    for (int i = 0; i < tables[table_count - 1]->columns_count; i++)
+    for (int i = 0; i < tables[*table_count - 1]->columns_count; i++)
     {
         if (i > 0)
         {
@@ -409,7 +452,7 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
     return 0;
 }
 
-int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, int table_count)
+int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
 {
     if (token_count < 5)
     {
@@ -482,7 +525,7 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
     Table *target_table = NULL;
     // Check for the table name
 
-    for (int i = 0; i < table_count; i++)
+    for (int i = 0; i < *table_count; i++)
     {
         if (strcmp(tables[i]->table_name, tokens[*iterator].token) == 0)
         {
@@ -548,56 +591,172 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
     return -1;
 }
 
-int parse_where(Token *tokens, int token_count, int *iterator, Table **tables, int table_count)
+int parse_create(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
 {
-    // TODO: Implement WHERE clause parsing. THIS IS NOT IMPLEMENTED YET
-    //  Check for the identifier (column name)
-    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    if (tokens[*iterator].type == TOKEN_TABLE)
     {
-        printf("Error: Expected column name after WHERE\n");
-        return -1;
-    }
-    (*iterator)++;
-    // Check for the operator
-    TokenType operators[20];
-    char *values[20];
-    int operator_count = 0;
-    while (tokens[*iterator].type == TOKEN_EQ || tokens[*iterator].type == TOKEN_GT || tokens[*iterator].type == TOKEN_LT || tokens[*iterator].type == TOKEN_GE || tokens[*iterator].type == TOKEN_LE || tokens[*iterator].type == TOKEN_NE)
-    {
-        operators[operator_count] = tokens[*iterator].type;
         (*iterator)++;
-        // Check for the value
-        if (tokens[*iterator].type != TOKEN_NUMBER && tokens[*iterator].type != TOKEN_STRING)
+        if (tokens[*iterator].type != TOKEN_IDENTIFIER)
         {
-            printf("Error: Expected value after operator\n");
+            printf("Error: Expected table name after CREATE TABLE\n");
             return -1;
         }
-        values[operator_count] = strdup(tokens[*iterator].token);
-        operator_count++;
+        char *table_name = strdup(tokens[*iterator].token);
         (*iterator)++;
-    }
-    // Check for the value
-    if (tokens[*iterator].type != TOKEN_NUMBER)
-    {
-        printf("Error: Expected value after operator\n");
-        return -1;
+
+        // check if table name already exists
+        if (does_table_exists(table_name))
+        {
+            printf("Error: Table %s already exists\n", table_name);
+            free(table_name);
+            return -1;
+        }
+        if (tokens[*iterator].type != TOKEN_OPEN_PARENTHESIS)
+        {
+            printf("Error: Expected opening parenthesis after table name\n");
+            free(table_name);
+            return -1;
+        }
+        Column columns[MAX_COLUMN_COUNT];
+        int column_count = 0;
+        Column primary_key;
+        int primary_key_found = 0;
+
+        do
+        {
+            (*iterator)++;
+            if (column_count >= MAX_COLUMN_COUNT)
+            {
+                printf("Error: Too many columns, Maximum is %d\n", MAX_COLUMN_COUNT);
+                free(table_name);
+                return -1;
+            }
+            if (*iterator >= token_count)
+            {
+                printf("Error: Unexpected end of tokens\n");
+                free(table_name);
+                return -1;
+            }
+
+            if (tokens[*iterator].type == TOKEN_IDENTIFIER)
+            {
+                strcpy(columns[column_count].name, tokens[*iterator].token);
+                (*iterator)++;
+                if (tokens[*iterator].type == TOKEN_INT)
+                {
+                    columns[column_count].type = INT;
+                    columns[column_count].lenght = 0;
+                    (*iterator)++;
+                }
+                else if (tokens[*iterator].type == TOKEN_CHAR)
+                {
+                    columns[column_count].type = STRING;
+                    (*iterator)++;
+                    if (tokens[*iterator].type != TOKEN_OPEN_PARENTHESIS || tokens[*(iterator) + 1].type != TOKEN_NUMBER)
+                    {
+                        printf("Error: Expected string lenght\n");
+                        free(table_name);
+                        return -1;
+                    }
+                    else
+                    {
+                        (*iterator)++;
+                        columns[column_count].lenght = atoi(tokens[*iterator].token);
+                        if (columns[column_count].lenght <= 0)
+                        {
+                            printf("Error: Invalid string lenght\n");
+                            free(table_name);
+                            return -1;
+                        }
+                        (*iterator)++;
+                        if (tokens[*iterator].type != TOKEN_CLOSE_PARENTHESIS)
+                        {
+                            printf("Error: Expected closing parenthesis after string lenght\n");
+                            free(table_name);
+                            return -1;
+                        }
+                        (*iterator)++;
+                    }
+                }
+                else
+                {
+                    printf("Error: Unknown column type %s\n", tokens[*iterator].token);
+                    free(table_name);
+                    return -1;
+                }
+                column_count++;
+            }
+            else if (tokens[*iterator].type == TOKEN_PRIMARY && tokens[*(iterator) + 1].type == TOKEN_KEY && tokens[*(iterator) + 2].type == TOKEN_OPEN_PARENTHESIS && primary_key_found == 0)
+            {
+                (*iterator) += 3;
+                if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+                {
+                    printf("Error: Expected primary key column name\n");
+                    free(table_name);
+                    return -1;
+                }
+                for (int i = 0; i < column_count; i++)
+                {
+                    if (strcmp(columns[i].name, tokens[*iterator].token) == 0)
+                    {
+                        strcpy(primary_key.name, columns[i].name);
+                        primary_key.type = columns[i].type;
+                        primary_key.lenght = columns[i].lenght;
+                        (*iterator)++;
+                        primary_key_found = 1;
+                        break;
+                    }
+                }
+                if (tokens[*iterator].type != TOKEN_CLOSE_PARENTHESIS)
+                {
+                    printf("Error: Expected closing parenthesis after primary key column name\n");
+                    free(table_name);
+                    return -1;
+                }
+                (*iterator)++;
+            }
+            else
+            {
+                printf("Error: Invalid syntax\n");
+                free(table_name);
+                return -1;
+            }
+        } while (tokens[*iterator].type == TOKEN_COMMA);
+        if (tokens[*iterator].type != TOKEN_CLOSE_PARENTHESIS)
+        {
+            printf("Error: Expected closing parenthesis or comma\n");
+            free(table_name);
+            return -1;
+        }
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon at the end of CREATE TABLE statement\n");
+            free(table_name);
+            return -1;
+        }
+        (*iterator)++;
+        // Create the table
+        Table *new_table = create_table(table_name, columns, column_count, primary_key);
+        if (new_table == NULL)
+        {
+            printf("Error: Failed to create table\n");
+            free(table_name);
+            return -1;
+        }
+        // Add the table to the list of tables
+        tables[(*table_count)++] = new_table;
+        free(table_name);
+        return 0;
     }
     else
     {
-    }
-    (*iterator)++;
-
-    // Check for the semicolon
-    if (tokens[*iterator].type != TOKEN_SEMICOLON)
-    {
-        printf("Error: Expected semicolon at the end of WHERE clause\n");
+        printf("Error: Expected TABLE keyword\n");
         return -1;
     }
-    (*iterator)++;
-    return 0;
 }
 
-int parser(Token *tokens, int token_count, Table **tables, int table_count)
+int parser(Token *tokens, int token_count, Table **tables, int *table_count)
 {
     int iterator = 0;
     for (int i = 0; i < token_count; i++)
@@ -622,6 +781,11 @@ int parser(Token *tokens, int token_count, Table **tables, int table_count)
             break;
         case TOKEN_DELETE:
             // printf("DELETE statement\n");
+            break;
+        case TOKEN_CREATE:
+            // printf("CREATE statement\n");
+            iterator++;
+            parse_create(tokens, token_count, &iterator, tables, table_count);
             break;
         case TOKEN_FROM:
             // printf("FROM clause\n");

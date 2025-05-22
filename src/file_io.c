@@ -15,6 +15,50 @@ FILE *open_file(const char *table_name, const char *exit, const char *mode)
     return file;
 }
 
+int add_table_to_tables(const char *table_name)
+{
+    FILE *file = fopen(".tables", "wb+");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+    // Write the table name to the file
+    char *str_copy = calloc(1, MAX_NAME_LEN + 1);
+    if (str_copy == NULL)
+    {
+        return -1;
+    }
+    strncpy(str_copy, table_name, strlen(table_name));
+
+    fwrite(str_copy, sizeof(char), MAX_NAME_LEN, file);
+    free(str_copy);
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int does_table_exists(const char *table_name)
+{
+    FILE *file = fopen(".tables", "wb+");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+    char str[MAX_NAME_LEN + 1];
+    while (fread(str, sizeof(char), MAX_NAME_LEN, file) == MAX_NAME_LEN)
+    {
+        if (strcmp(str, table_name) == 0)
+        {
+            fclose(file);
+            return 1; // Table exists
+        }
+    }
+    fclose(file);
+    return 0; // Table does not exist
+}
+
 void print_all_columns(const Table *table)
 {
     FILE *file = open_file(table->table_name, "bin", "rb");
