@@ -43,6 +43,10 @@ typedef enum
     TOKEN_CLOSE_PARENTHESIS,
     TOKEN_EOF,
     TOKEN_ERROR
+    TOKEN_ADD,
+    TOKEN_SUB,
+    TOKEN_DIV,
+    TOKEN_NOT,
 } TokenType;
 
 typedef struct Token
