@@ -3,6 +3,7 @@
 
 #include "table.h"
 #include "hashmap.h"
+#include "globals.h"
 #include <stdio.h>
 
 /**
@@ -165,7 +166,117 @@ void print_values_of(const Table *table, Column **columns, int columns_count);
  */
 void print_all_columns(const Table *table);
 
+/**
+ * @brief Add a new table to the .tables file.
+ */
 int add_table_to_tables(const char *table_name);
+
+/**
+ * @brief Remove a table from the .tables file.
+ *
+ * @param table_name The name of the table to remove.
+ * @return int 0 on success, -1 on failure.
+ */
+int remove_table_from_tables(const char *table_name);
+
+/**
+ * @brief Check if a table exists in the .tables file.
+ *
+ * @param table_name The name of the table to check.
+ * @return int 1 if the table exists, 0 if it does not, -1 on error.
+ */
 int does_table_exists(const char *table_name);
+
+/**
+ * @brief Create a new database with the specified name.
+ *
+ * @param db_name The name of the database to create.
+ * @return int 0 on success, -1 on failure.
+ */
+int create_db(const char *db_name);
+
+/**
+ * @brief Create a directory with the specified npath.
+ *
+ * @param path The path of the directory to create.
+ * @return int 0 on success, -1 on failure.
+ */
+int create_directory(const char *path);
+
+/**
+ * @brief Create initial folders for the database.
+ *
+ * @param db_name The name of the database for which to create initial folders.
+ * @return int 0 on success, -1 on failure.
+ */
+int create_db_initial_folders(const char *db_name);
+
+/**
+ * @brief Check if a database exists.
+ * 
+ * @param db_name The name of the database to check.
+ * @return int 1 if the database exists, 0 if it does not.
+ */
+int check_db_exists(const char *db_name);
+
+/**
+ * @brief Print the list of databases.
+ * 
+ * @return int 0 on success, -1 on failure.
+ */
+int list_dbs();
+
+/**
+ * @brief Drop a database, delete its files and free allocated memory.
+ *  
+ * @param db_name The name of the database to drop.
+ * @return int 0 on success, -1 on failure.
+ */
+int drop_db(const char *db_name);
+
+/**
+ * @brief Remove a directory and all its contents recursively.
+ * 
+ * @param path The path of the directory to remove.
+ * @return int 0 on success, -1 on failure.
+ */
+int remove_directory(const char *path);
+
+/**
+ * @brief Load a database by its name.
+ * 
+ * @param db_name The name of the database to load.
+ * @return int 0 on success, -1 on failure.
+ */
+int load_db(const char *db_name);
+
+/**
+ * @brief Create the .tables file for the database and initialize table_count.
+ * 
+ * @param db_name The name of the database for which to create the .tables file.
+ * @return int 0 on success, -1 on failure.
+ */
+int create_tables_file(const char *db_name);
+
+/**
+ * @brief Update the table count in the .tables file with value from globalvars.
+ * 
+ * @return int 0 on success, -1 on failure.
+ */
+int update_table_count_on_file();
+
+/**
+ * @brief List all tables in the current database by reading the .tables file.
+ * 
+ * @return int 0 on success, -1 on failure.
+ */
+int list_tables();
+
+/**
+ * @brief Read every table in the .tables file and create the tables.
+ * 
+ * @return int 0 on success, -1 on failure.
+ */
+int get_tables();
 
 #endif

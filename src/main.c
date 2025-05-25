@@ -186,39 +186,43 @@ void create_test()
     insert(user_table);
 }
 
-int main()
+void get_query(char *query)
 {
-    // create_test();
-    char *query = "CREATE TABLE users (ID int, name char(50), age int, email char(20), PRIMARY KEY (ID) );";
     printf("Query: %s\n", query);
     int token_count = 0;
     Token *tokens = tokenize(query, &token_count);
-    if (parser(tokens, token_count, tables, &table_count) == -1)
+    if (parser(tokens, token_count) == -1)
     {
         printf("Failed to parse query\n");
-        free(tokens);
-        return -1;
     }
+    free(tokens);
+}
 
-    char *query2 = "INSERT INTO users VALUES (1, 'Alice', 25, 'mail');";
-    printf("Query: %s\n", query2);
-    int token_count2 = 0;
-    Token *tokens2 = tokenize(query2, &token_count2);
-    if (parser(tokens2, token_count2, tables, &table_count) == -1)
-    {
-        printf("Failed to parse query\n");
-        free(tokens2);
-        return -1;
-    }
+int main()
+{
+    drop_db("test_db");
+    get_query("CREATE DATABASE test_db;");
+    get_query("SHOW DATABASES;");
+    get_query("LOAD DATABASE test_db;");
+    get_query("CREATE TABLE users (ID int, name char(50), age int, email char(20), PRIMARY KEY(ID));");
+    get_query("INSERT INTO users VALUES (1, 'ALICE', 25, 'mail');");
+    get_query("INSERT INTO users VALUES (2, 'BOB', 30, 'mail');");
+    get_query("SELECT age,email FROM users;");
+    get_query("CREATE TABLE products (ID int, name char(50), price int, PRIMARY KEY(ID));");
+    get_query("INSERT INTO products VALUES (1, 'Product1', 100);");
+    get_query("INSERT INTO products VALUES (2, 'Product2', 200);");
+    get_query("SELECT * FROM products;");
+    get_query("SHOW TABLES;");
+    get_query("DROP TABLE users;");
+    get_query("SHOW TABLES;");
+    get_query("CREATE TABLE use (ID int, PRIMARY KEY(ID));");
+    get_query("INSERT INTO use VALUES (1);");
+    get_query("INSERT INTO use VALUES (2);");
+    get_query("SELECT * FROM use;");
+    // get_query("SHOW TABLES;");
+    // get_query("DROP TABLE use;");
+    // get_query("SHOW TABLES;");
+    // get_query("DROP TABLE products;");
+    // get_query("DROP DATABASE test_db;");
 
-    char *query3 = "SELECT * FROM users;";
-    printf("Query: %s\n", query3);
-    int token_count3 = 0;
-    Token *tokens3 = tokenize(query3, &token_count3);
-    if (parser(tokens3, token_count3, tables, &table_count) == -1)
-    {
-        printf("Failed to parse query\n");
-        free(tokens3);
-        return -1;
-    }
 }

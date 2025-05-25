@@ -2,15 +2,20 @@
 #define SQL_TOKENIZER_H
 
 #include "table.h"
+#include "globals.h"
 
-#define MAX_TOKEN_LENGTH 256
-#define MAX_TOKEN_COUNT 256
 typedef enum
 {
     TOKEN_SELECT,
     TOKEN_INSERT,
     TOKEN_CREATE,
     TOKEN_TABLE,
+    TOKEN_DATABASE,
+    TOKEN_SHOW,
+    TOKEN_LOAD,
+    TOKEN_DATABASES,
+    TOKEN_TABLES,
+    TOKEN_DROP,
     TOKEN_VALUES,
     TOKEN_UPDATE,
     TOKEN_DELETE,
@@ -65,11 +70,9 @@ Token *tokenize(const char *sql, int *out_count);
  *
  * @param tokens The array of tokens to parse.
  * @param token_count The number of tokens.
- * @param tables The array of tables to operate on.
- * @param table_count Pointer to the number of tables.
  * @return int 0 on success, -1 on failure.
  */
-int parser(Token *tokens, int token_count, Table **tables, int *table_count);
+int parser(Token *tokens, int token_count);
 
 /**
  * @brief Parse an INSERT statement.
@@ -77,11 +80,9 @@ int parser(Token *tokens, int token_count, Table **tables, int *table_count);
  * @param tokens The array of tokens to parse.
  * @param token_count The number of tokens.
  * @param iterator Pointer to the current position in the token array.
- * @param tables The array of tables to operate on.
- * @param table_count Pointer to the number of tables.
  * @return int 0 on success, -1 on failure.
  */
-int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count);
+int parse_insert(Token *tokens, int token_count, int *iterator);
 
 /**
  * @brief Parse a SELECT statement.
@@ -89,22 +90,47 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
  * @param tokens The array of tokens to parse.
  * @param token_count The number of tokens.
  * @param iterator Pointer to the current position in the token array.
- * @param tables The array of tables to operate on.
- * @param table_count Pointer to the number of tables.
  * @return int 0 on success, -1 on failure.
  */
-int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count);
+int parse_select(Token *tokens, int token_count, int *iterator);
 
 /**
- * @brief Parse a WHERE clause.
+ * @brief Parse a CREATE statement.
  *
  * @param tokens The array of tokens to parse.
  * @param token_count The number of tokens.
  * @param iterator Pointer to the current position in the token array.
- * @param tables The array of tables to operate on.
- * @param table_count The number of tables.
+ */
+int parse_create(Token *tokens, int token_count, int *iterator);
+
+/**
+ * @brief Parse a SHOW statement.
+ *
+ * @param tokens The array of tokens to parse.
+ * @param token_count The number of tokens.
+ * @param iterator Pointer to the current position in the token array.
  * @return int 0 on success, -1 on failure.
  */
-int parse_where(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count); // TO BE IMPLEMENTED
+int parse_show(Token *tokens, int token_count, int *iterator);
+
+/**
+ * @brief Parse a LOAD statement.
+ *
+ * @param tokens The array of tokens to parse.
+ * @param token_count The number of tokens.
+ * @param iterator Pointer to the current position in the token array.
+ * @return int 0 on success, -1 on failure.
+ */
+int parse_load(Token *tokens, int token_count, int *iterator);
+
+/**
+ * @brief Parse a DROP statement.
+ *
+ * @param tokens The array of tokens to parse.
+ * @param token_count The number of tokens.
+ * @param iterator Pointer to the current position in the token array.
+ * @return int 0 on success, -1 on failure.
+ */
+int parse_drop(Token *tokens, int token_count, int *iterator);
 
 #endif // SQL_TOKENIZER_H

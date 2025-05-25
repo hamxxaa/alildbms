@@ -1,13 +1,9 @@
 #ifndef TABLE_H
 #define TABLE_H
 
-#define MAX_COLUMN_COUNT 20
-#define MAX_NAME_LEN 50
-#define DEFAULT_TABLE_SIZE 1000
-#define MAX_FREE_SPACES 500
-
 #include "hashmap.h"
 #include "fnv_hash.h"
+#include "globals.h"
 #include <stdlib.h>
 #include <stdarg.h>
 
@@ -24,7 +20,7 @@ typedef struct
     int lenght; // for strings
 } Column;
 
-typedef struct
+typedef struct Table
 {
     char table_name[MAX_NAME_LEN];
     Column columns[MAX_COLUMN_COUNT];
@@ -106,10 +102,9 @@ int check_column_exists(const Table *table, const Column column);
  *
  * @param table The table to check in.
  * @param column_name The name of the column to check for.
- * @return Column The column if it exists, NULL otherwise.
- *        Note: The caller is responsible for freeing the returned column.
+ * @return int 1 if the column exists, 0 otherwise.
  */
-Column *check_column_exists_by_name(const Table *table, const char *column_name);
+int check_column_exists_by_name(const Table *table, const char *column_name);
 
 /**
  * @brief Calculate the offset of a column in the table.
@@ -183,5 +178,23 @@ int insert_record_array(Table *table, void **values);
  * @return Table* Pointer to the created temporary table.
  */
 Table *create_temp_table(const char *table_name, const Column *columns, const int columns_count);
+
+/**
+ * @brief Get a column from the table by its name.
+ *
+ * @param table The table to get the column from.
+ * @param column_name The name of the column to get.
+ * @return Column* Pointer to the found column, or NULL if not found.
+ *      note: the returned column must be freed by the caller.
+ */
+Column *get_column(const Table *table, const char *column_name);
+
+/**
+ * @brief Drops table, frees its memory, and deletes its files.
+ *
+ * @param table The table to drop.
+ * @return int 0 on success, -1 on failure.
+ */
+int drop_table(Table *table);
 
 #endif

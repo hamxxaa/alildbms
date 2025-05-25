@@ -1,10 +1,18 @@
 #include "file_io.h"
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(dir, mode) _mkdir(dir)
+#endif
 
 FILE *open_file(const char *table_name, const char *exit, const char *mode)
 {
-    char filename[MAX_NAME_LEN + 23];
-    snprintf(filename, sizeof(filename), "%ss/%s.%s", exit, table_name, exit);
+    char filename[MAX_NAME_LEN * 2 + 23];
+    snprintf(filename, sizeof(filename), "%s/%ss/%s.%s", get_root(), exit, table_name, exit);
     FILE *file = fopen(filename, mode);
     if (!file)
     {
@@ -15,14 +23,300 @@ FILE *open_file(const char *table_name, const char *exit, const char *mode)
     return file;
 }
 
-int add_table_to_tables(const char *table_name)
+int list_tables()
 {
-    FILE *file = fopen(".tables", "wb+");
+    char path[MAX_NAME_LEN + 8];
+    snprintf(path, sizeof(path), "%s/.tables", get_root());
+    FILE *file = fopen(path, "rb");
     if (!file)
     {
         perror("Failed to open .tables file");
         return -1;
     }
+
+    int table_count;
+    fread(&table_count, sizeof(int), 1, file);
+    if (table_count <= 0)
+    {
+        printf("No tables found\n");
+        fclose(file);
+        return 0;
+    }
+    char table_name[MAX_NAME_LEN + 1];
+    for (int i = 0; i < table_count; i++)
+    {
+        fread(table_name, sizeof(char), MAX_NAME_LEN + 1, file);
+        if (strlen(table_name) > 0)
+        {
+            printf("%s\n", table_name);
+        }
+    }
+    fclose(file);
+    return 0;
+}
+
+int create_directory(const char *dir)
+{
+    struct stat st = {0};
+    if (stat(dir, &st) == -1)
+    {
+        if (mkdir(dir, 0755) == -1)
+        {
+            perror("Failed to create directory");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int create_db_initial_folders(const char *db_name)
+{
+    char dir[MAX_NAME_LEN + 20];
+    snprintf(dir, sizeof(dir), "databases/%s", db_name);
+    if (create_directory(dir) == -1)
+    {
+        return -1;
+    }
+    snprintf(dir, sizeof(dir), "databases/%s/bins", db_name);
+    if (create_directory(dir) == -1)
+    {
+        return -1;
+    }
+    snprintf(dir, sizeof(dir), "databases/%s/hashmaps", db_name);
+    if (create_directory(dir) == -1)
+    {
+        return -1;
+    }
+    snprintf(dir, sizeof(dir), "databases/%s/metadatas", db_name);
+    if (create_directory(dir) == -1)
+    {
+        return -1;
+    }
+    snprintf(dir, sizeof(dir), "databases/%s/.tables", db_name);
+    if (create_tables_file(dir) == -1)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int check_db_exists(const char *db_name)
+{
+    char db_path[MAX_NAME_LEN + 20];
+    snprintf(db_path, sizeof(db_path), "databases/%s", db_name);
+    struct stat st = {0};
+    if (stat(db_path, &st) == 0)
+    {
+        return 1; // Directory exists
+    }
+    return 0; // Directory does not exist
+}
+
+int list_dbs()
+{
+    struct dirent *entry;
+    DIR *dp = opendir("./databases");
+    if (dp == NULL)
+    {
+        perror("opendir");
+        return -1;
+    }
+
+    while ((entry = readdir(dp)) != NULL)
+    {
+        if (entry->d_type == 4 && strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) // for some reason DT_DIR does not exist, its 4 in enum so i used 4
+        {
+            printf("%s\n", entry->d_name);
+        }
+    }
+
+    closedir(dp);
+    return 0;
+}
+
+int load_db(const char *db_name)
+{
+    if (!check_db_exists(db_name))
+    {
+        printf("Database does not exist\n");
+        return -1;
+    }
+    if (initialize_globals(db_name) == -1)
+    {
+        printf("Failed to initialize globals\n");
+        return -1;
+    }
+    return 0;
+}
+
+int create_db(const char *db_name)
+{
+    if (check_db_exists(db_name))
+    {
+        printf("Database already exists\n");
+        return -1;
+    }
+    if (create_db_initial_folders(db_name) == -1)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int get_tables()
+{
+    char root[MAX_NAME_LEN + 8];
+    snprintf(root, sizeof(root), "%s/.tables", get_root());
+    FILE *file = fopen(root, "rb+");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+    int table_count;
+    fread(&table_count, sizeof(int), 1, file);
+    for (int i = 0; i < table_count; i++)
+    {
+        char table_name[MAX_NAME_LEN + 1];
+        fread(table_name, sizeof(table_name), 1, file);
+        if (add_table(table_name) == -1)
+        {
+            fclose(file);
+            return -1;
+        }
+    }
+    if (table_count != get_table_count())
+    {
+        printf("Error: Unexpected table or table count");
+        return -1;
+    }
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int remove_directory(const char *path)
+{
+    DIR *dir = opendir(path);
+    if (!dir)
+    {
+        perror("Failed to open directory");
+        return -1;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        {
+            continue;
+        }
+
+        char full_path[1024];
+        snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+
+        struct stat statbuf;
+        if (lstat(full_path, &statbuf) == -1)
+        {
+            perror("Failed to get file status");
+            continue;
+        }
+
+        if (S_ISDIR(statbuf.st_mode))
+        {
+            remove_directory(full_path); // Recursive call for subdirectories
+        }
+        else
+        {
+            if (unlink(full_path) == -1)
+            {
+                perror("Failed to delete file");
+                closedir(dir);
+                return -1;
+            }
+        }
+    }
+    closedir(dir);
+
+    if (rmdir(path) == -1)
+    {
+        perror("Failed to remove directory");
+        return -1;
+    }
+    return 0; // Directory removed successfully
+}
+
+int drop_db(const char *db_name)
+{
+    if (check_db_exists(db_name))
+    {
+        char dir[MAX_NAME_LEN + 20];
+        snprintf(dir, sizeof(dir), "databases/%s", db_name);
+        free_globals(); // Free global variables after dropping the database
+        remove_directory(dir);
+        return 0;
+    }
+    else
+    {
+        printf("Database does not exist\n");
+        return -1;
+    }
+}
+
+int create_tables_file(const char *db_dir)
+{
+    FILE *file = fopen(db_dir, "wb+");
+    if (!file)
+    {
+        perror("Failed to create .tables file");
+        return -1;
+    }
+    int zero = 0;
+    fwrite(&zero, sizeof(int), 1, file); // write table count first
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int update_table_count_on_file()
+{
+    char root[MAX_NAME_LEN + 8];
+    snprintf(root, sizeof(root), "%s/.tables", get_root());
+    FILE *file = fopen(root, "rb+");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+
+    int table_count = get_table_count();
+    fwrite(&table_count, sizeof(int), 1, file);
+    fflush(file);
+    fclose(file);
+    return 0;
+}
+
+int add_table_to_tables(const char *table_name)
+{
+    char root[MAX_NAME_LEN + 8];
+    snprintf(root, sizeof(root), "%s/.tables", get_root());
+    FILE *file = fopen(root, "rb+");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+
+    int table_count;
+    fread(&table_count, sizeof(int), 1, file);
+    if (table_count < 0 || table_count >= MAX_TABLE_COUNT)
+    {
+        fclose(file);
+        printf("Table count exceeds maximum limit\n");
+        return -1;
+    }
+    fseek(file, (MAX_NAME_LEN + 1) * table_count, SEEK_CUR);
+
     // Write the table name to the file
     char *str_copy = calloc(1, MAX_NAME_LEN + 1);
     if (str_copy == NULL)
@@ -30,24 +324,82 @@ int add_table_to_tables(const char *table_name)
         return -1;
     }
     strncpy(str_copy, table_name, strlen(table_name));
+    str_copy[MAX_NAME_LEN] = '\0'; // Ensure null termination
 
-    fwrite(str_copy, sizeof(char), MAX_NAME_LEN, file);
+    fwrite(str_copy, sizeof(char), MAX_NAME_LEN + 1, file);
     free(str_copy);
     fflush(file);
     fclose(file);
     return 0;
 }
 
-int does_table_exists(const char *table_name)
+int remove_table_from_tables(const char *table_name)
 {
-    FILE *file = fopen(".tables", "wb+");
+    char root[MAX_NAME_LEN + 8];
+    snprintf(root, sizeof(root), "%s/.tables", get_root());
+    FILE *file = fopen(root, "rb+");
     if (!file)
     {
         perror("Failed to open .tables file");
         return -1;
     }
+
+    int table_count;
+    fread(&table_count, sizeof(int), 1, file);
+    if (table_count <= 0)
+    {
+        fclose(file);
+        return 0; // No tables to remove
+    }
+
     char str[MAX_NAME_LEN + 1];
-    while (fread(str, sizeof(char), MAX_NAME_LEN, file) == MAX_NAME_LEN)
+    int found = 0;
+    for (int i = 0; i < table_count; i++)
+    {
+        fread(str, sizeof(char), MAX_NAME_LEN + 1, file);
+        if (strcmp(str, table_name) == 0)
+        {
+            found = 1;
+            // shift remaining tables
+            for (int j = i; j < table_count - 1; j++)
+            {
+                fread(str, sizeof(char), MAX_NAME_LEN + 1, file);
+                fseek(file, (-MAX_NAME_LEN - 1) * 2, SEEK_CUR);
+                fwrite(str, sizeof(char), MAX_NAME_LEN + 1, file);
+                fseek(file, MAX_NAME_LEN + 1, SEEK_CUR);
+            }
+            // Clear the last table name
+            char empty_str[MAX_NAME_LEN + 1] = {0};
+            fwrite(empty_str, sizeof(char), MAX_NAME_LEN + 1, file);
+            break;
+        }
+    }
+
+    if (found)
+    {
+        table_count--;
+        fseek(file, 0, SEEK_SET);                   // Move to the beginning of the file
+        fwrite(&table_count, sizeof(int), 1, file); // Update the table count
+    }
+
+    fflush(file);
+    fclose(file);
+    return found ? 0 : -1; // Return success if a table was removed
+}
+
+int does_table_exists(const char *table_name)
+{
+    char root[MAX_NAME_LEN + 8];
+    snprintf(root, sizeof(root), "%s/.tables", get_root());
+    FILE *file = fopen(root, "rb");
+    if (!file)
+    {
+        perror("Failed to open .tables file");
+        return -1;
+    }
+    fseek(file, sizeof(int), SEEK_SET); // Skip the first int which is the table count
+    char str[MAX_NAME_LEN + 1];
+    while (fread(str, sizeof(char), MAX_NAME_LEN + 1, file) == MAX_NAME_LEN + 1)
     {
         if (strcmp(str, table_name) == 0)
         {

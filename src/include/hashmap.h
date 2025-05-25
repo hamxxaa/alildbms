@@ -1,8 +1,8 @@
 #ifndef HASHMAP_H
 #define HASHMAP_H
 
+#include "globals.h"
 #include <stdint.h>
-#define DEFAULT_FREE_HASH_SPACES 500
 
 struct Table; // Forward declaration of Table struct
 

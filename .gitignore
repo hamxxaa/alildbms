@@ -1,7 +1,5 @@
 /dbms
 /obj
-/bins/*.bin
-/hashmaps/*.hashmap
-/metadatas/*.metadata
+/databases/*
 /.vscode
 a.out

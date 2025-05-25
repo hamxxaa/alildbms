@@ -56,7 +56,12 @@ Table *create_table(const char *table_name, const Column *columns, const int col
         perror("Failed to allocate table");
         return NULL;
     }
-
+    if (strlen(table_name) >= MAX_NAME_LEN)
+    {
+        fprintf(stderr, "Table name is too long\n");
+        free(table);
+        return NULL;
+    }
     strncpy(table->table_name, table_name, MAX_NAME_LEN);
     for (int i = 0; i < columns_count; i++)
     {
@@ -415,7 +420,29 @@ int check_column_exists(const Table *table, const Column column)
     return 0; // Column does not exist
 }
 
-Column *check_column_exists_by_name(const Table *table, const char *column_name)
+int check_column_exists_by_name(const Table *table, const char *column_name)
+{
+    for (int i = 0; i < table->columns_count; i++)
+    {
+        if (strcmp(table->columns[i].name, column_name) == 0)
+        {
+            Column *col = (Column *)malloc(sizeof(Column));
+            if (!col)
+            {
+                perror("Failed to allocate memory for column");
+                return 0;
+            }
+            strncpy(col->name, table->columns[i].name, MAX_NAME_LEN);
+            col->type = table->columns[i].type;
+            col->lenght = table->columns[i].lenght;
+            free(col); // Free the allocated memory
+            return 1;  // Column exists
+        }
+    }
+    return 0; // Column does not exist
+}
+
+Column *get_column(const Table *table, const char *column_name)
 {
     for (int i = 0; i < table->columns_count; i++)
     {
@@ -430,15 +457,15 @@ Column *check_column_exists_by_name(const Table *table, const char *column_name)
             strncpy(col->name, table->columns[i].name, MAX_NAME_LEN);
             col->type = table->columns[i].type;
             col->lenght = table->columns[i].lenght;
-            return col; // Column exists
+            return col; // Column found
         }
     }
-    return NULL; // Column does not exist
+    return NULL; // Column not found
 }
 
 int cmpcolumns(const Column a, const Column b)
 {
-    return strcmp(a.name, b.name) && a.type == b.type && a.lenght == b.lenght;
+    return strcmp(a.name, b.name) && !(a.type == b.type) && !(a.lenght == b.lenght);
 }
 
 HashEntry *find_record_from_args(const Table *table, va_list args)
@@ -683,5 +710,58 @@ int free_table(Table *table)
         return -1;
     }
     free(table);
+    return 0;
+}
+
+int drop_table(Table *table)
+{
+    if (!table)
+    {
+        return -1;
+    }
+
+    // Delete the binary file
+    char file[MAX_NAME_LEN * 2 + 25];
+    snprintf(file, sizeof(file), "%s/bins/%s.bin", get_root(), table->table_name);
+    if (remove(file) != 0)
+    {
+        perror("Failed to delete binary file");
+        return -1;
+    }
+
+    // Delete the metadata file
+    snprintf(file, sizeof(file), "%s/metadatas/%s.metadata", get_root(), table->table_name);
+    if (remove(file) != 0)
+    {
+        perror("Failed to delete metadata file");
+        return -1;
+    }
+
+    // Delete the hashmap file
+    snprintf(file, sizeof(file), "%s/hashmaps/%s.hashmap", get_root(), table->table_name);
+    if (remove(file) != 0)
+    {
+        perror("Failed to delete hashmap file");
+        return -1;
+    }
+
+    free_hashtable(table->hash);
+
+    if (remove_table_from_tables(table->table_name) != 0)
+    {
+        printf("Failed to remove table from tables\n");
+        return -1;
+    }
+    if (remove_table_from_globals(table->table_name) != 0)
+    {
+        printf("Failed to remove table from globals\n");
+        return -1;
+    }
+    if (update_table_count_on_file() != 0)
+    {
+        printf("Failed to update table count on file\n");
+        return -1;
+    }
+
     return 0;
 }

@@ -54,11 +54,53 @@ Token *tokenize(const char *sql, int *out_count)
             sql += 6;
             tokens[token_count++] = token;
         }
+        else if (strncmp(sql, "TABLES", 6) == 0)
+        {
+            token.type = TOKEN_TABLES;
+            strcpy(token.token, "TABLES");
+            sql += 6;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "DROP", 4) == 0)
+        {
+            token.type = TOKEN_DROP;
+            strcpy(token.token, "DROP");
+            sql += 4;
+            tokens[token_count++] = token;
+        }
         else if (strncmp(sql, "TABLE", 5) == 0)
         {
             token.type = TOKEN_TABLE;
             strcpy(token.token, "TABLE");
             sql += 5;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "LOAD", 4) == 0)
+        {
+            token.type = TOKEN_LOAD;
+            strcpy(token.token, "LOAD");
+            sql += 4;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "DATABASES", 9) == 0)
+        {
+            token.type = TOKEN_DATABASES;
+            strcpy(token.token, "DATABASES");
+            sql += 9;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "SHOW", 4) == 0)
+        {
+            token.type = TOKEN_SHOW;
+            strcpy(token.token, "SHOW");
+            sql += 4;
+            tokens[token_count++] = token;
+        }
+        else if (strncmp(sql, "DATABASE", 8) == 0)
+        {
+            token.type = TOKEN_DATABASE;
+            strcpy(token.token, "DATABASE");
+            sql += 8;
             tokens[token_count++] = token;
         }
         else if (strncmp(sql, "VALUES", 6) == 0)
@@ -305,11 +347,11 @@ Token *tokenize(const char *sql, int *out_count)
     return tokens;
 }
 
-int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
+int parse_insert(Token *tokens, int token_count, int *iterator)
 {
-    if (token_count < 5)
+    if (!is_db_loaded())
     {
-        printf("Error: Not enough tokens for INSERT statement\n");
+        printf("Error: No database is loaded, please load a database first\n");
         return -1;
     }
     // Check for the INTO keyword
@@ -325,17 +367,9 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
         return -1;
     }
 
-    Table *target_table = NULL;
-    // Check for the table name
-    for (int i = 0; i < *table_count; i++)
-    {
-        if (strcmp(tables[i]->table_name, tokens[*iterator].token) == 0)
-        {
-            target_table = tables[i];
-            (*iterator)++;
-            break;
-        }
-    }
+    Table *target_table = get_table(tokens[*iterator].token);
+    (*iterator)++;
+
     if (target_table == NULL)
     {
         printf("Error: Table %s does not exist\n", tokens[*iterator].token);
@@ -357,7 +391,6 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
     }
 
     // get values
-
     void *values[target_table->columns_count];
     int *int_values = malloc(sizeof(int) * target_table->columns_count);
     char **string_values = malloc(sizeof(char *) * target_table->columns_count);
@@ -369,8 +402,13 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
         return -1;
     }
 
-    for (int i = 0; i < tables[*table_count - 1]->columns_count; i++)
+    for (int i = 0; i < target_table->columns_count; i++)
     {
+        if (token_count <= *iterator)
+        {
+            printf("Error: Unexpected end of tokens\n");
+            return -1;
+        }
         if (i > 0)
         {
             if (tokens[(*iterator)++].type != TOKEN_COMMA)
@@ -448,18 +486,19 @@ int parse_insert(Token *tokens, int token_count, int *iterator, Table **tables, 
             free(string_values[i]);
         }
     }
+    free(int_values);
+    free(string_values);
 
     return 0;
 }
 
-int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
+int parse_select(Token *tokens, int token_count, int *iterator)
 {
-    if (token_count < 5)
+    if (!is_db_loaded())
     {
-        printf("Error: Not enough tokens for SELECT statement\n");
+        printf("Error: No database is loaded, please load a database first\n");
         return -1;
     }
-
     int all = 0;
     char *column_names[MAX_COLUMN_COUNT];
     int column_count = 0;
@@ -522,18 +561,9 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
         }
         return -1;
     }
-    Table *target_table = NULL;
-    // Check for the table name
 
-    for (int i = 0; i < *table_count; i++)
-    {
-        if (strcmp(tables[i]->table_name, tokens[*iterator].token) == 0)
-        {
-            target_table = tables[i];
-            (*iterator)++;
-            break;
-        }
-    }
+    Table *target_table = get_table(tokens[*iterator].token);
+    (*iterator)++;
     if (target_table == NULL)
     {
         printf("Error: Table %s does not exist\n", tokens[*iterator].token);
@@ -550,8 +580,12 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
         // Check columns exist in given table
         for (int i = 0; i < column_count; i++)
         {
-            columns[i] = check_column_exists_by_name(target_table, column_names[i]);
-            if (columns[i] == NULL)
+            if (token_count < *iterator)
+            {
+                printf("Error: Unexpected end of tokens\n");
+                return -1;
+            }
+            if (!check_column_exists_by_name(target_table, column_names[i]))
             {
                 printf("Error: Column %s does not exist in table %s\n", column_names[i], target_table->table_name);
                 free(column_names[i]);
@@ -561,6 +595,7 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
                 }
                 return -1;
             }
+            columns[i] = get_column(target_table, column_names[i]);
         }
     }
     // Check for WHERE keyword
@@ -591,10 +626,15 @@ int parse_select(Token *tokens, int token_count, int *iterator, Table **tables, 
     return -1;
 }
 
-int parse_create(Token *tokens, int token_count, int *iterator, Table **tables, int *table_count)
+int parse_create(Token *tokens, int token_count, int *iterator)
 {
     if (tokens[*iterator].type == TOKEN_TABLE)
     {
+        if (!is_db_loaded())
+        {
+            printf("Error: No database is loaded, please load a database first\n");
+            return -1;
+        }
         (*iterator)++;
         if (tokens[*iterator].type != TOKEN_IDENTIFIER)
         {
@@ -745,18 +785,219 @@ int parse_create(Token *tokens, int token_count, int *iterator, Table **tables, 
             return -1;
         }
         // Add the table to the list of tables
-        tables[(*table_count)++] = new_table;
+        if (add_table_to_globals(new_table) != 0)
+        {
+            printf("Error: Failed to add table to globals\n");
+            free(table_name);
+            return -1;
+        }
+        if (update_table_count_on_file() != 0)
+        {
+            printf("Error: Failed to update table count on file\n");
+            free(table_name);
+            return -1;
+        }
         free(table_name);
+        return 0;
+    }
+    else if (tokens[*iterator].type == TOKEN_DATABASE)
+    {
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+        {
+            printf("Error: Expected database name after CREATE DATABASE\n");
+            return -1;
+        }
+        char *db_name = strdup(tokens[*iterator].token);
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon");
+        }
+        (*iterator)++;
+        // Create the database
+        if (create_db(db_name) != 0)
+        {
+            printf("Error: Failed to create database\n");
+            free(db_name);
+            return -1;
+        }
+        free(db_name);
         return 0;
     }
     else
     {
-        printf("Error: Expected TABLE keyword\n");
+        printf("Error: Expected TABLE or DATABASE keyword\n");
         return -1;
     }
 }
 
-int parser(Token *tokens, int token_count, Table **tables, int *table_count)
+int parse_show(Token *tokens, int token_count, int *iterator)
+{
+    if (token_count <= *iterator)
+    {
+        printf("Error: Not enough tokens for LOAD statement\n");
+        return -1;
+    }
+    if (tokens[*iterator].type == TOKEN_DATABASES)
+    {
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon");
+        }
+        (*iterator)++;
+        list_dbs();
+        return 0;
+    }
+    else if (tokens[*iterator].type == TOKEN_TABLES)
+    {
+        if (!is_db_loaded())
+        {
+            printf("Error: No database is loaded, please load a database first\n");
+            return -1;
+        }
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon");
+        }
+        (*iterator)++;
+        list_tables();
+        return 0;
+    }
+    return -1;
+}
+
+int parse_load(Token *tokens, int token_count, int *iterator)
+{
+    if (is_db_loaded())
+    {
+        printf("Error: A database is already loaded, please unload it first\n");
+        return -1;
+    }
+    if (token_count <= *iterator)
+    {
+        printf("Error: Not enough tokens for LOAD statement\n");
+        return -1;
+    }
+    if (tokens[*iterator].type != TOKEN_DATABASE)
+    {
+        printf("Error: Expected DATABASE keyword\n");
+        return -1;
+    }
+    (*iterator)++;
+    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    {
+        printf("Error: Expected database name after LOAD DATABASE\n");
+        return -1;
+    }
+    char *db_name = strdup(tokens[*iterator].token);
+    (*iterator)++;
+    if (tokens[*iterator].type != TOKEN_SEMICOLON)
+    {
+        printf("Error: Expected semicolon");
+    }
+    (*iterator)++;
+    // Load the database
+
+    if (load_db(db_name) != 0)
+    {
+        printf("Error: Failed to load database\n");
+        free(db_name);
+        return -1;
+    }
+
+    free(db_name);
+    return 0;
+}
+
+int parse_drop(Token *tokens, int token_count, int *iterator)
+{
+    if (token_count <= *iterator)
+    {
+        printf("Error: Not enough tokens for DROP statement\n");
+        return -1;
+    }
+    if (tokens[*iterator].type == TOKEN_TABLE)
+    {
+        if (!is_db_loaded())
+        {
+            printf("Error: No database is loaded, please load a database first\n");
+            return -1;
+        }
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+        {
+            printf("Error: Expected table name after DROP TABLE\n");
+            return -1;
+        }
+        char *table_name = strdup(tokens[*iterator].token);
+        (*iterator)++;
+        if (check_table_exist(table_name) == 0)
+        {
+            printf("Error: Table %s does not exist\n", table_name);
+            free(table_name);
+            return -1;
+        }
+        Table *table = get_table(table_name);
+        if (table == NULL)
+        {
+            printf("Error: Table %s does not exist\n", table_name);
+            free(table_name);
+            return -1;
+        }
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon\n");
+            free(table_name);
+            return -1;
+        }
+        (*iterator)++;
+
+        // Drop the table
+        if (drop_table(table) != 0)
+        {
+            printf("Error: Failed to drop table %s\n", table_name);
+            free(table_name);
+            return -1;
+        }
+        free(table_name);
+        return 0;
+    }
+    else if (tokens[*iterator].type == TOKEN_DATABASE)
+    {
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+        {
+            printf("Error: Expected database name after DROP DATABASE\n");
+            return -1;
+        }
+        char *db_name = strdup(tokens[*iterator].token);
+        (*iterator)++;
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon");
+        }
+        (*iterator)++;
+        // Drop the database
+        if (drop_db(db_name) != 0)
+        {
+            printf("Error: Failed to drop database %s\n", db_name);
+            free(db_name);
+            return -1;
+        }
+        free(db_name);
+        return 0;
+    }
+    else
+    {
+        printf("Error: Expected TABLE or DATABASE keyword\n");
+        return -1;
+    }
+}
+
+int parser(Token *tokens, int token_count)
 {
     int iterator = 0;
     for (int i = 0; i < token_count; i++)
@@ -765,19 +1006,37 @@ int parser(Token *tokens, int token_count, Table **tables, int *table_count)
         {
         case TOKEN_SELECT:
             iterator++;
-            parse_select(tokens, token_count, &iterator, tables, table_count);
+            parse_select(tokens, token_count, &iterator);
             break;
         case TOKEN_INSERT:
             // printf("INSERT statement\n");
             iterator++;
-            if (parse_insert(tokens, token_count, &iterator, tables, table_count) == -1)
+            if (parse_insert(tokens, token_count, &iterator) == -1)
             {
                 printf("Error: Failed to parse INSERT statement\n");
                 return -1;
             }
             break;
+        case TOKEN_SHOW:
+            // printf("SHOW statement\n");
+            iterator++;
+            if (parse_show(tokens, token_count, &iterator) == -1)
+            {
+                printf("Error: Failed to parse SHOW statement\n");
+                return -1;
+            }
+            break;
         case TOKEN_UPDATE:
             // printf("UPDATE statement\n");
+            break;
+        case TOKEN_LOAD:
+            // printf("LOAD statement\n");
+            iterator++;
+            if (parse_load(tokens, token_count, &iterator) == -1)
+            {
+                printf("Error: Failed to parse LOAD statement\n");
+                return -1;
+            }
             break;
         case TOKEN_DELETE:
             // printf("DELETE statement\n");
@@ -785,10 +1044,12 @@ int parser(Token *tokens, int token_count, Table **tables, int *table_count)
         case TOKEN_CREATE:
             // printf("CREATE statement\n");
             iterator++;
-            parse_create(tokens, token_count, &iterator, tables, table_count);
+            parse_create(tokens, token_count, &iterator);
             break;
-        case TOKEN_FROM:
-            // printf("FROM clause\n");
+        case TOKEN_DROP:
+            // printf("DROP statement\n");
+            iterator++;
+            parse_drop(tokens, token_count, &iterator);
             break;
         case TOKEN_INTO:
             // printf("INTO clause\n");
