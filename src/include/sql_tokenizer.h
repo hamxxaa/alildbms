@@ -41,12 +41,12 @@ typedef enum
     TOKEN_SEMICOLON,
     TOKEN_OPEN_PARENTHESIS,
     TOKEN_CLOSE_PARENTHESIS,
-    TOKEN_EOF,
-    TOKEN_ERROR
     TOKEN_ADD,
     TOKEN_SUB,
     TOKEN_DIV,
     TOKEN_NOT,
+    TOKEN_EOF,
+    TOKEN_ERROR
 } TokenType;
 
 typedef struct Token

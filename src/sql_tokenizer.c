@@ -1,6 +1,7 @@
 #include "sql_tokenizer.h"
 #include "table.h"
 #include "file_io.h"
+#include "expression.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>

@@ -210,15 +210,25 @@ int main()
         free(tokens2);
         return -1;
     }
-
-    char *query3 = "SELECT * FROM users;";
+   /* char *query3 = "INSERT INTO users VALUES (2, 'Bob', 30, 'mail');";
     printf("Query: %s\n", query3);
     int token_count3 = 0;
-    Token *tokens3 = tokenize(query3, &token_count3);
+    Token *tokens3 = tokenize(query2, &token_count2);
     if (parser(tokens3, token_count3, tables, &table_count) == -1)
     {
         printf("Failed to parse query\n");
-        free(tokens3);
+        free(tokens2);
+        return -1;
+    }*/
+
+    char *query4 = "SELECT * FROM users WHERE (age == 20 OR ID + 2 * 1/2 == 2 AND (1 = 5 OR (ID + 1) * (7 + 5) >= 23));";
+    printf("Query: %s\n", query4);
+    int token_count4 = 0;
+    Token *tokens4 = tokenize(query4, &token_count4);
+    if (parser(tokens4, token_count4, tables, &table_count) == -1)
+    {
+        printf("Failed to parse query\n");
+        free(tokens4);
         return -1;
     }
 }

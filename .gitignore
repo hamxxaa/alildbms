@@ -5,3 +5,4 @@
 /metadatas/*.metadata
 /.vscode
 a.out
+.tables

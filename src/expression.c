@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <ctype.h>
 
-static Operator token_to_operator(TokenType type) {
+static int token_to_operator(TokenType type) {
     switch (type) {
         case TOKEN_EQ: return OP_EQ;
         case TOKEN_NE: return OP_NE;
@@ -38,16 +38,26 @@ static int get_precedence(Operator op) {
 static Expression *parse_primary(Token *tokens, int *i);
 
 static Expression *parse_binary_op_rhs(Token *tokens, int *i, int min_prec, Expression *lhs) {
-    while (1) {
-        Operator op = token_to_operator(tokens[*i].type);
-        int prec = get_precedence(op);
-        if (prec < min_prec) break;
+    while (tokens[*i].type != TOKEN_EOF &&
+           tokens[*i].type != TOKEN_SEMICOLON &&
+           tokens[*i].type != TOKEN_CLOSE_PARENTHESIS) {
 
-        (*i)++;
+        int op = token_to_operator(tokens[*i].type);
+        int prec = get_precedence(op);
+
+        if (op == -1 || prec < min_prec) break;
+
+        (*i)++;  // consume the operator
+
         Expression *rhs = parse_primary(tokens, i);
 
-        Operator next_op = token_to_operator(tokens[*i].type);
-        if (get_precedence(next_op) > prec) {
+
+        if (!rhs) return lhs;
+
+        int next_op = token_to_operator(tokens[*i].type);
+        int next_prec = get_precedence(next_op);
+
+        if (next_op != -1 && next_prec > prec) {
             rhs = parse_binary_op_rhs(tokens, i, prec + 1, rhs);
         }
 
@@ -62,10 +72,16 @@ static Expression *parse_binary_op_rhs(Token *tokens, int *i, int min_prec, Expr
     return lhs;
 }
 
+Expression *parse_expression(Token *tokens, int *i, int count);
+
 static Expression *parse_primary(Token *tokens, int *i) {
+    if (tokens[*i].type == TOKEN_EOF)
+        return NULL;
+
     if (tokens[*i].type == TOKEN_NOT) {
         (*i)++;
         Expression *child = parse_primary(tokens, i);
+        if (!child) return NULL;
         Expression *expr = malloc(sizeof(Expression));
         expr->type = EXPR_UNARY;
         expr->unary.op = OP_NOT;
@@ -76,8 +92,11 @@ static Expression *parse_primary(Token *tokens, int *i) {
     if (tokens[*i].type == TOKEN_OPEN_PARENTHESIS) {
         (*i)++;
         Expression *expr = parse_expression(tokens, i, -1);
-        if (tokens[*i].type == TOKEN_CLOSE_PARENTHESIS)
+        if (tokens[*i].type == TOKEN_CLOSE_PARENTHESIS) {
             (*i)++;
+        } else {
+            printf("Error: Missing closing parenthesis\n");
+        }
         return expr;
     }
 
@@ -89,34 +108,40 @@ static Expression *parse_primary(Token *tokens, int *i) {
         expr->type = EXPR_LITERAL;
         expr->literal.value = strdup(tokens[*i].token);
         expr->literal.is_string = (tokens[*i].type == TOKEN_STRING);
+    } else {
+        free(expr);
+        return NULL;
     }
     (*i)++;
     return expr;
 }
 
 Expression *parse_expression(Token *tokens, int *i, int count) {
+    (void)count;
     Expression *lhs = parse_primary(tokens, i);
+    if (!lhs) return NULL;
     return parse_binary_op_rhs(tokens, i, 1, lhs);
 }
 
 int evaluate_expression(Expression *expr, const Table *table, const char *row_data) {
     switch (expr->type) {
         case EXPR_LITERAL:
+            if (expr->literal.is_string)
+                return -1; // string literals are handled specially in EXPR_BINARY
             return atoi(expr->literal.value);
 
         case EXPR_COLUMN: {
             int offset = 0;
             for (int i = 0; i < table->columns_count; i++) {
-                Column *col = &table->columns[i];
+                const Column *col = &table->columns[i];
                 if (strcmp(col->name, expr->column_name) == 0) {
                     if (col->type == INT) {
                         return *(int *)(row_data + offset);
                     } else {
-                        // if needed: implement strcmp here
-                        return 0;
+                        return -1; // signal that string data is not directly evaluatable
                     }
                 }
-                offset += (col->type == INT) ? sizeof(int) : col->lenght + 1;
+                offset += (col->type == INT) ? (int)sizeof(int) : col->lenght + 1;
             }
             return 0;
         }
@@ -127,27 +152,95 @@ int evaluate_expression(Expression *expr, const Table *table, const char *row_da
             break;
 
         case EXPR_BINARY: {
-            int left = evaluate_expression(expr->binary.left, table, row_data);
-            int right = evaluate_expression(expr->binary.right, table, row_data);
-            switch (expr->binary.op) {
-                case OP_ADD: return left + right;
-                case OP_SUB: return left - right;
-                case OP_MUL: return left * right;
-                case OP_DIV: return right != 0 ? left / right : 0;
-                case OP_EQ: return left == right;
-                case OP_NE: return left != right;
-                case OP_LT: return left < right;
-                case OP_LE: return left <= right;
-                case OP_GT: return left > right;
-                case OP_GE: return left >= right;
-                case OP_AND: return left && right;
-                case OP_OR: return left || right;
-                default: return 0;
+            // These hold flags and data for string vs int mode
+            int is_left_str = 0, is_right_str = 0;
+            char left_str[256] = {0}, right_str[256] = {0};
+            int left = 0, right = 0;
+
+            // LEFT SIDE
+            if (expr->binary.left->type == EXPR_LITERAL && expr->binary.left->literal.is_string) {
+                is_left_str = 1;
+                strncpy(left_str, expr->binary.left->literal.value, 255);
+            } else if (expr->binary.left->type == EXPR_COLUMN) {
+                int offset = 0;
+                for (int i = 0; i < table->columns_count; i++) {
+                    const Column *col = &table->columns[i];
+                    if (strcmp(col->name, expr->binary.left->column_name) == 0) {
+                        if (col->type == STRING) {
+                            is_left_str = 1;
+                            strncpy(left_str, row_data + offset, col->lenght);
+                            left_str[col->lenght] = '\0';
+                        } else {
+                            left = *(int *)(row_data + offset);
+                        }
+                        break;
+                    }
+                    offset += (table->columns[i].type == INT) ? (int)sizeof(int) : table->columns[i].lenght + 1;
+                }
+            } else {
+                left = evaluate_expression(expr->binary.left, table, row_data);
             }
+
+            // RIGHT SIDE
+            if (expr->binary.right->type == EXPR_LITERAL && expr->binary.right->literal.is_string) {
+                is_right_str = 1;
+                strncpy(right_str, expr->binary.right->literal.value, 255);
+            } else if (expr->binary.right->type == EXPR_COLUMN) {
+                int offset = 0;
+                for (int i = 0; i < table->columns_count; i++) {
+                    const Column *col = &table->columns[i];
+                    if (strcmp(col->name, expr->binary.right->column_name) == 0) {
+                        if (col->type == STRING) {
+                            is_right_str = 1;
+                            strncpy(right_str, row_data + offset, col->lenght);
+                            right_str[col->lenght] = '\0';
+                        } else {
+                            right = *(int *)(row_data + offset);
+                        }
+                        break;
+                    }
+                    offset += (table->columns[i].type == INT) ? (int)sizeof(int) : table->columns[i].lenght + 1;
+                }
+            } else {
+                right = evaluate_expression(expr->binary.right, table, row_data);
+            }
+
+            // Handle string comparisons
+            if (is_left_str && is_right_str) {
+                int cmp = strcmp(left_str, right_str);
+                switch (expr->binary.op) {
+                    case OP_EQ: return cmp == 0;
+                    case OP_NE: return cmp != 0;
+                    default: return 0; // Don't allow arithmetic ops on strings
+                }
+            }
+
+            // Handle integer logic
+            // If both sides are NOT strings, always evaluate integer logic
+            if (!is_left_str && !is_right_str) {
+                printf("[EVAL] operator: %d, left: %d, right: %d\n", expr->binary.op, left, right);
+                switch (expr->binary.op) {
+                    case OP_ADD: return left + right;
+                    case OP_SUB: return left - right;
+                    case OP_MUL: return left * right;
+                    case OP_DIV: return right != 0 ? left / right : 0;
+                    case OP_EQ: return left == right;
+                    case OP_NE: return left != right;
+                    case OP_LT: return left < right;
+                    case OP_LE: return left <= right;
+                    case OP_GT: return left > right;
+                    case OP_GE: return left >= right;
+                    case OP_AND: return left && right;
+                    case OP_OR: return left || right;
+                    default: return 0;
+                }
+}
+
         }
     }
     return 0;
 }
+
 
 void free_expression(Expression *expr) {
     if (!expr) return;
