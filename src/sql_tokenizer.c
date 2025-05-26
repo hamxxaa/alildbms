@@ -609,18 +609,23 @@ int parse_select(Token *tokens, int token_count, int *iterator)
 		// Check columns exist in given table
 		for (int i = 0; i < column_count; i++)
 		{
-			columns[i] = check_column_exists_by_name(target_table, column_names[i]);
-			if (columns[i] == NULL)
-			{
-				printf("Error: Column %s does not exist in table %s\n", column_names[i], target_table->table_name);
-				free(column_names[i]);
-				for (int j = 0; j < column_count; j++)
-				{
-					free(column_names[j]);
-				}
-				return -1;
-			}
-		}
+			if (token_count < *iterator)
+            {
+                printf("Error: Unexpected end of tokens\n");
+                return -1;
+            }
+            if (!check_column_exists_by_name(target_table, column_names[i]))
+            {
+                printf("Error: Column %s does not exist in table %s\n", column_names[i], target_table->table_name);
+                free(column_names[i]);
+                for (int j = 0; j < column_count; j++)
+                {
+                    free(column_names[j]);
+                }
+                return -1;
+            }
+            columns[i] = get_column(target_table, column_names[i]);
+        }
 	}
 	// Check for WHERE keyword
 	if (tokens[*iterator].type == TOKEN_WHERE) {
