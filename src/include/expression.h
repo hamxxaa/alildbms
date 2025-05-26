@@ -40,8 +40,32 @@ typedef struct Expression {
     };
 } Expression;
 
+/**
+ * Parses an expression using tokens and returns an expression tree.
+ *
+ * @param tokens The array of tokens.
+ * @param i Pointer to the current index in the token stream.
+ * @param count The number of tokens (can be -1 if unused).
+ * @return Expression* pointer to the root of the expression tree.
+ */
 Expression *parse_expression(Token *tokens, int *i, int count);
+
+/**
+ * Evaluates the expression tree for a specific row.
+ *
+ * @param expr The expression tree to evaluate.
+ * @param table The table the row belongs to.
+ * @param row_data The pointer to the raw binary row data.
+ * @return int 1 if expression is true, 0 if false.
+ */
 int evaluate_expression(Expression *expr, const Table *table, const char *row_data);
+
+/**
+ * Frees all memory used by the expression tree.
+ *
+ * @param expr The root node of the expression tree.
+ */
 void free_expression(Expression *expr);
+
 
 #endif

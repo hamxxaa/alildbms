@@ -3,3 +3,4 @@
 /databases/*
 /.vscode
 a.out
+.tables
