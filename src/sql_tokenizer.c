@@ -1,11 +1,44 @@
 #include "sql_tokenizer.h"
 #include "table.h"
 #include "file_io.h"
-#include "expression.h"
-#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
+
+void nested_loop_join(Expression *expr, Table *tables[], char *alias[], FILE *files[], int table_count, char *rows[], int current_table, long return_positions[][table_count], int *match_count /*, Column *columns[], char *column_alias[], int column_count*/)
+{
+    if (current_table >= table_count)
+    {
+        if (evaluate_expression(expr, tables, alias, rows, table_count))
+        {
+            for (int i = 0; i < table_count; i++)
+            {
+                return_positions[*match_count][i] = ftell(files[i]) - tables[i]->row_size_in_bytes;
+            }
+            (*match_count)++;
+        }
+        return;
+    }
+
+    while (fread(rows[current_table], tables[current_table]->row_size_in_bytes, 1, files[current_table]) == 1)
+    {
+        if (isfree(tables[current_table], ftell(files[current_table]) - tables[current_table]->row_size_in_bytes))
+        {
+            continue; // Skip free rows
+        }
+        // Recursively process next table
+        nested_loop_join(expr, tables, alias, files, table_count, rows, current_table + 1, return_positions, match_count /*, columns, column_alias, column_count*/);
+
+        // After processing all deeper tables, rewind them for next iteration
+        for (int i = current_table + 1; i < table_count; i++)
+        {
+            rewind(files[i]);
+        }
+    }
+
+    // Rewind current table for potential future joins
+    rewind(files[current_table]);
+}
 
 Token *tokenize(const char *sql, int *out_count)
 {
@@ -287,6 +320,13 @@ Token *tokenize(const char *sql, int *out_count)
             sql++;
             tokens[token_count++] = token;
         }
+        else if (*sql == '.')
+        {
+            token.type = TOKEN_DOT;
+            strcpy(token.token, ".");
+            sql++;
+            tokens[token_count++] = token;
+        }
         else if (*sql == '>')
         {
             token.type = TOKEN_GT;
@@ -521,6 +561,139 @@ int parse_insert(Token *tokens, int token_count, int *iterator)
     return 0;
 }
 
+int parse_where(Token *tokens, int token_count, int *iterator, Table *tables[], char *alias[], int table_count, long return_positions[][table_count], int *match_count)
+{
+    FILE *files[table_count];
+    char *rows[table_count];
+    for (int i = 0; i < table_count; i++)
+    {
+        files[i] = open_file(tables[i]->table_name, "bin", "rb");
+        rows[i] = calloc(tables[i]->row_size_in_bytes, sizeof(char));
+    }
+
+    Expression *expr = parse_expression(tokens, iterator, token_count);
+    if (tokens[*iterator].type == TOKEN_SEMICOLON)
+    {
+        nested_loop_join(expr, tables, alias, files, table_count, rows, 0, return_positions, match_count /*, columns, column_alias, column_count*/);
+        if (match_count == 0)
+        {
+            printf("No matching records found\n");
+            return -1;
+        }
+        else
+        {
+            for (int i = 0; i < table_count; i++)
+            {
+                free(rows[i]);
+                fclose(files[i]);
+            }
+            return 0;
+        }
+    }
+    else
+    {
+        printf("Error: Expected semicolon after WHERE clause\n");
+        for (int i = 0; i < table_count; i++)
+        {
+            free(rows[i]);
+            fclose(files[i]);
+        }
+        return -1;
+    }
+}
+
+int parse_join(Token *tokens, int token_count, int *iterator, Table *tables[], char *alias[], int *table_count, int *total_record_size)
+{
+    while (1)
+    {
+        if (*iterator >= token_count)
+        {
+            printf("Error: Unexpected end of tokens\n");
+            for (int i = 0; i < *table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+        if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+        {
+            printf("Error: Expected table name after FROM or comma\n");
+            for (int i = 0; i < *table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+        if (*table_count == MAX_JOIN_COUNT)
+        {
+            printf("Error: Exceeded max number of joins: %d\n", MAX_JOIN_COUNT);
+            for (int i = 0; i < *table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+        tables[*table_count] = get_table(tokens[*iterator].token);
+
+        if (tables[*table_count] == NULL)
+        {
+            printf("Error: Table %s does not exist\n", tokens[*iterator].token);
+            for (int i = 0; i < *table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+        *total_record_size *= tables[*table_count]->row_size_in_bytes;
+        (*iterator)++;
+        if (tokens[*iterator].type == TOKEN_IDENTIFIER)
+        {
+            alias[*table_count] = strdup(tokens[*iterator].token);
+            (*iterator)++;
+        }
+        else
+        {
+            alias[*table_count] = strdup(tables[*table_count]->table_name);
+        }
+        (*table_count)++;
+
+        if (tokens[*iterator].type == TOKEN_COMMA)
+        {
+            (*iterator)++;
+            continue;
+        }
+        else if (tokens[*iterator].type == TOKEN_WHERE || tokens[*iterator].type == TOKEN_EOF || tokens[*iterator].type == TOKEN_SEMICOLON)
+        {
+            break;
+        }
+        else
+        {
+            printf("Error: Invalid syntax on from, expected semicolon or WHERE\n");
+            for (int i = 0; i < *table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+    }
+    for (int i = 0; i < *table_count - 1; i++)
+    {
+        for (int j = i + 1; j < *table_count; j++)
+        {
+            if (strcmp(alias[i], alias[j]) == 0)
+            {
+                printf("Error: Alias %s used more than once\n", alias[i]);
+                for (int i = 0; i < *table_count; i++)
+                {
+                    free(alias[i]);
+                }
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 int parse_select(Token *tokens, int token_count, int *iterator)
 {
     if (!is_db_loaded())
@@ -530,6 +703,7 @@ int parse_select(Token *tokens, int token_count, int *iterator)
     }
     int all = 0;
     char *column_names[MAX_COLUMN_COUNT];
+    char *column_alias[MAX_COLUMN_COUNT];
     int column_count = 0;
     // Check for columns
     if (tokens[(*iterator)].type == TOKEN_STAR)
@@ -540,17 +714,60 @@ int parse_select(Token *tokens, int token_count, int *iterator)
     else if (tokens[*iterator].type == TOKEN_IDENTIFIER)
     {
 
-        while (tokens[*iterator].type == TOKEN_IDENTIFIER)
+        while (1)
         {
-            column_names[column_count++] = strdup(tokens[*iterator].token);
-            (*iterator)++;
-            if (tokens[*iterator].type == TOKEN_COMMA)
+            if (tokens[*iterator].type == TOKEN_IDENTIFIER)
             {
-                (*iterator)++;
+                if (tokens[*iterator + 1].type == TOKEN_DOT)
+                {
+                    if (tokens[*iterator + 2].type != TOKEN_IDENTIFIER)
+                    {
+                        printf("Error: Invalid syntax on select\n");
+                    }
+                    else
+                    {
+                        column_alias[column_count] = strdup(tokens[*iterator].token);
+                        (*iterator) += 2; // skip .
+                        column_names[column_count] = strdup(tokens[*iterator].token);
+                        (*iterator)++;
+                    }
+                }
+                else
+                {
+                    column_alias[column_count] = strdup(tokens[*iterator].token);
+                    column_names[column_count] = strdup(tokens[*iterator].token);
+                    (*iterator)++;
+                }
+                column_count++;
+                if (tokens[*iterator].type == TOKEN_COMMA)
+                {
+                    (*iterator)++;
+                    continue;
+                }
+                else if (tokens[*iterator].type == TOKEN_FROM)
+                {
+                    break;
+                }
+                else
+                {
+                    printf("Error: Expected FROM or comma after column name\n");
+                    for (int i = 0; i < column_count; i++)
+                    {
+                        free(column_names[i]);
+                        free(column_alias[i]);
+                    }
+                    return -1;
+                }
             }
             else
             {
-                break;
+                printf("Error: Expected column name\n");
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(column_alias[i]);
+                }
+                return -1;
             }
         }
         if (column_count == 0)
@@ -559,6 +776,7 @@ int parse_select(Token *tokens, int token_count, int *iterator)
             for (int i = 0; i < column_count; i++)
             {
                 free(column_names[i]);
+                free(column_alias[i]);
             }
             return -1;
         }
@@ -575,101 +793,168 @@ int parse_select(Token *tokens, int token_count, int *iterator)
         for (int i = 0; i < column_count; i++)
         {
             free(column_names[i]);
+            free(column_alias[i]);
         }
         return -1;
     }
     (*iterator)++;
 
-    // Check for table name
-    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    // Check for tables
+    Table *tables[MAX_JOIN_COUNT];
+    char *alias[MAX_JOIN_COUNT];
+    int table_count = 0;
+    int total_record_size = 1;
+
+    if (parse_join(tokens, token_count, iterator, tables, alias, &table_count, &total_record_size) != 0)
     {
-        printf("Error: Expected table name after FROM\n");
         for (int i = 0; i < column_count; i++)
         {
             free(column_names[i]);
+            free(column_alias[i]);
         }
         return -1;
     }
 
-    Table *target_table = get_table(tokens[*iterator].token);
-    (*iterator)++;
-    if (target_table == NULL)
+    for (int i = 0; i < table_count - 1; i++)
     {
-        printf("Error: Table %s does not exist\n", tokens[*iterator].token);
-        for (int i = 0; i < column_count; i++)
+        for (int j = i + 1; j < table_count; j++)
         {
-            free(column_names[i]);
-        }
-        return -1;
-    }
-    Column *columns[column_count];
-
-    if (all == 0)
-    {
-        // Check columns exist in given table
-        for (int i = 0; i < column_count; i++)
-        {
-            if (token_count < *iterator)
+            if (strcmp(alias[i], alias[j]) == 0)
             {
-                printf("Error: Unexpected end of tokens\n");
-                return -1;
-            }
-            if (!check_column_exists_by_name(target_table, column_names[i]))
-            {
-                printf("Error: Column %s does not exist in table %s\n", column_names[i], target_table->table_name);
-                free(column_names[i]);
-                for (int j = 0; j < column_count; j++)
+                printf("Error: Alias %s used more than once\n", alias[i]);
+                for (int i = 0; i < column_count; i++)
                 {
-                    free(column_names[j]);
+                    free(column_names[i]);
+                    free(column_alias[i]);
+                }
+                for (int i = 0; i < table_count; i++)
+                {
+                    free(alias[i]);
                 }
                 return -1;
             }
-            columns[i] = get_column(target_table, column_names[i]);
         }
     }
-    // Check for WHERE keyword
+
+    Column *columns[column_count];
+    for (int i = 0; i < column_count; i++)
+    {
+        int check = 0;
+        for (int j = 0; j < table_count; j++)
+        {
+            if (check_column_exists_by_name(tables[j], column_names[i]))
+            {
+                columns[i] = get_column(tables[j], column_names[i]);
+                check++;
+                if (check > 1)
+                {
+                    if (strcmp(column_alias[i], column_names[i]) == 0)
+                    {
+                        printf("Error: Column %s exists in more than one table, give specifications\n", column_names[i]);
+                        for (int i = 0; i < column_count; i++)
+                        {
+                            free(column_names[i]);
+                            free(column_alias[i]);
+                            free(columns[i]);
+                        }
+                        for (int i = 0; i < table_count; i++)
+                        {
+                            free(alias[i]);
+                        }
+                        return -1;
+                    }
+                }
+            }
+        }
+        if (!check)
+        {
+            printf("Error: Column %s does not exist in given tables\n", column_names[i]);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(column_alias[i]);
+                free(columns[i]);
+            }
+            for (int i = 0; i < table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return -1;
+        }
+    }
+
+    long return_positions[total_record_size][table_count];
+    int match_count = 0;
+
+    // // Check for WHERE keyword
     if (tokens[*iterator].type == TOKEN_WHERE)
     {
         (*iterator)++;
-        Expression *expr = parse_expression(tokens, iterator, token_count);
-        FILE *file = open_file(target_table->table_name, "bin", "rb");
-        for (int i = 0; i < target_table->record_size; i++)
+        parse_where(tokens, token_count, iterator, tables, alias, table_count, return_positions, &match_count);
+        if (match_count == 0)
         {
-            char *row = malloc(target_table->row_size_in_bytes);
-            fseek(file, i * target_table->row_size_in_bytes, SEEK_SET);
-            fread(row, target_table->row_size_in_bytes, 1, file);
-            if (evaluate_expression(expr, target_table, row))
+            printf("No matching records found\n");
+            for (int i = 0; i < column_count; i++)
             {
-                if (all)
-                    print_row_readable(target_table, row);
-                else
-                    print_values_of(target_table, columns, column_count);
+                free(column_names[i]);
+                free(column_alias[i]);
             }
-            free(row);
+            for (int i = 0; i < table_count; i++)
+            {
+                free(alias[i]);
+            }
+            return 0;
         }
-        fclose(file);
-        free_expression(expr);
-        return 0;
+        // print positions
+        for (int i = 0; i < match_count; i++)
+        {
+            for (int j = 0; j < table_count; j++)
+            {
+                printf("%ld, ", return_positions[i][j]);
+            }
+            printf("\n");
+        }
+        for (int i = 0; i < column_count; i++)
+        {
+            free(column_names[i]);
+            free(column_alias[i]);
+        }
+        for (int i = 0; i < table_count; i++)
+        {
+            free(alias[i]);
+        }
+        return 0; // when printing functions are ready this will be deleted
+
+        if (all == 0)
+        {
+        }
+        else
+        {
+            // print_all_tables_with_where(expr, tables, alias, table_count);
+        }
     }
 
     // check semicolon
     else if (tokens[*iterator].type == TOKEN_SEMICOLON)
     {
-        if (all)
+        if (all == 0)
         {
-            print_all_columns(target_table);
+
+            // print_joined_tables_without_where(tables, alias, files, table_count, columns, column_alias, column_count);
         }
         else
         {
-            print_values_of(target_table, columns, column_count);
-        }
-        for (int i = 0; i < column_count; i++)
-        {
-            free(columns[i]);
+
+            // print_all_tables_without_where(tables, alias, table_count);
         }
         for (int i = 0; i < column_count; i++)
         {
             free(column_names[i]);
+            free(column_alias[i]);
+        }
+        for (int i = 0; i < table_count; i++)
+        {
+            free(alias[i]);
         }
         return 0;
     }
@@ -878,6 +1163,437 @@ int parse_create(Token *tokens, int token_count, int *iterator)
     else
     {
         printf("Error: Expected TABLE or DATABASE keyword\n");
+        return -1;
+    }
+}
+
+int parse_delete(Token *tokens, int token_count, int *iterator)
+{
+    if (!is_db_loaded())
+    {
+        printf("Error: No database is loaded, please load a database first\n");
+        return -1;
+    }
+    if (token_count <= *iterator)
+    {
+        printf("Error: Not enough tokens for DELETE statement\n");
+        return -1;
+    }
+    if (tokens[*iterator].type != TOKEN_FROM)
+    {
+        printf("Error: Expected FROM keyword after DELETE\n");
+        return -1;
+    }
+    (*iterator)++;
+    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    {
+        printf("Error: Expected table name after FROM\n");
+        return -1;
+    }
+    char *table_name = strdup(tokens[*iterator].token);
+    (*iterator)++;
+    if (check_table_exist(table_name) == 0)
+    {
+        printf("Error: Table %s does not exist\n", table_name);
+        free(table_name);
+        return -1;
+    }
+    Table *target_table = get_table(table_name);
+    if (target_table == NULL)
+    {
+        printf("Error: Table %s does not exist\n", table_name);
+        free(table_name);
+        return -1;
+    }
+    if (tokens[*iterator].type == TOKEN_FROM)
+    {
+        (*iterator)++;
+        Table *tables[MAX_JOIN_COUNT];
+        char *alias[MAX_JOIN_COUNT];
+        int table_count = 0;
+        int total_record_size = 1;
+        int match_count = 0;
+
+        if (parse_join(tokens, token_count, iterator, tables, alias, &table_count, &total_record_size) != 0)
+        {
+            free(table_name);
+            return -1;
+        }
+        long positions[MAX_JOIN_COUNT][table_count];
+
+        // Check for WHERE keyword
+        if (tokens[*iterator].type != TOKEN_WHERE)
+        {
+            printf("Error: Expected WHERE keyword after table name\n");
+            free(table_name);
+            return -1;
+        }
+        (*iterator)++;
+        if (parse_where(tokens, token_count, iterator, tables, alias, table_count, positions, &match_count) != 0)
+        {
+            free(table_name);
+            return -1;
+        }
+        if (match_count == 0)
+        {
+            printf("No matching records found\n");
+            free(table_name);
+            return 0;
+        }
+
+        // semicolon check
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon after WHERE clause\n");
+            free(table_name);
+            return -1;
+        }
+        (*iterator)++;
+
+        int target_index;
+        for (int i = 0; i < table_count; i++)
+        {
+            if (target_table == tables[i])
+            {
+                target_index = i;
+            }
+        }
+
+        for (int i = 0; i < match_count; i++)
+        {
+            long position = positions[i][target_index];
+            if (isfree(target_table, position))
+            {
+                // printf("Record at position %ld is already deleted\n", position);
+                continue;
+            }
+            if (delete_record_by_row_position(target_table, position) != 0)
+            {
+                printf("Error: Failed to delete record at position %ld\n", position);
+                free(table_name);
+                return -1;
+            }
+        }
+        free(table_name);
+        return 0;
+    }
+    else if (tokens[*iterator].type != TOKEN_WHERE)
+    {
+        printf("Error: Expected WHERE keyword after table name\n");
+        free(table_name);
+        return -1;
+    }
+    (*iterator)++;
+
+    Table *tables[1];
+    char *alias[1];
+    tables[0] = target_table;
+    alias[0] = strdup(target_table->table_name);
+    int table_count = 1;
+    long positions[target_table->record_size][1];
+    int match_count = 0;
+
+    if (parse_where(tokens, token_count, iterator, tables, alias, table_count, positions, &match_count) != 0)
+    {
+        free(table_name);
+        return -1;
+    }
+
+    if (match_count == 0)
+    {
+        printf("No matching records found\n");
+        free(table_name);
+        return 0;
+    }
+
+    // semicolon check
+    if (tokens[*iterator].type != TOKEN_SEMICOLON)
+    {
+        printf("Error: Expected semicolon after WHERE clause\n");
+        free(table_name);
+        return -1;
+    }
+    (*iterator)++;
+
+    // Delete the records
+    for (int i = 0; i < match_count; i++)
+    {
+        long position = positions[i][0];
+        if (delete_record_by_row_position(target_table, position) != 0)
+        {
+            printf("Error: Failed to delete record at position %ld\n", position);
+            free(table_name);
+            return -1;
+        }
+    }
+    free(table_name);
+    free(alias[0]);
+    return 0;
+}
+
+int parse_update(Token *tokens, int token_count, int *iterator)
+{
+    if (!is_db_loaded())
+    {
+        printf("Error: No database is loaded, please load a database first\n");
+        return -1;
+    }
+    if (token_count <= *iterator)
+    {
+        printf("Error: Not enough tokens for UPDATE statement\n");
+        return -1;
+    }
+    if (tokens[*iterator].type != TOKEN_IDENTIFIER)
+    {
+        printf("Error: Expected table name after UPDATE\n");
+        return -1;
+    }
+    char *table_name = strdup(tokens[*iterator].token);
+    (*iterator)++;
+    if (check_table_exist(table_name) == 0)
+    {
+        printf("Error: Table %s does not exist\n", table_name);
+        free(table_name);
+        return -1;
+    }
+    Table *target_table = get_table(table_name);
+    if (target_table == NULL)
+    {
+        printf("Error: Table %s does not exist\n", table_name);
+        free(table_name);
+        return -1;
+    }
+    if (tokens[*iterator].type != TOKEN_SET)
+    {
+        printf("Error: Expected SET keyword after table name\n");
+        free(table_name);
+        return -1;
+    }
+    (*iterator)++;
+    char *column_names[MAX_COLUMN_COUNT];
+    int column_count = 0;
+    char *values[MAX_COLUMN_COUNT];
+    while (1)
+    {
+        if (tokens[*iterator].type == TOKEN_IDENTIFIER)
+        {
+            column_names[column_count] = strdup(tokens[*iterator].token);
+            (*iterator)++;
+            if (column_count >= MAX_COLUMN_COUNT)
+            {
+                printf("Error: Too many columns, Maximum is %d\n", MAX_COLUMN_COUNT);
+                free(table_name);
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(values[i]);
+                }
+                free(column_names[column_count]);
+                return -1;
+            }
+            if (tokens[*iterator].type != TOKEN_EQ)
+            {
+                printf("Error: Expected '=' after column name\n");
+                free(table_name);
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(values[i]);
+                }
+                free(column_names[column_count]);
+                return -1;
+            }
+
+            (*iterator)++;
+            if (tokens[*iterator].type != TOKEN_NUMBER && tokens[*iterator].type != TOKEN_STRING)
+            {
+                printf("Error: Expected value after column name\n");
+                free(table_name);
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(values[i]);
+                }
+                free(column_names[column_count]);
+                return -1;
+            }
+            (*iterator)++;
+            values[column_count] = strdup(tokens[*iterator - 1].token);
+            column_count++;
+            if (tokens[*iterator].type == TOKEN_COMMA)
+            {
+                (*iterator)++;
+                continue;
+            }
+            else if (tokens[*iterator].type == TOKEN_WHERE || tokens[*iterator].type == TOKEN_SEMICOLON)
+            {
+                break;
+            }
+            else
+            {
+                printf("Error: Expected comma or WHERE after value\n");
+                free(table_name);
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(values[i]);
+                }
+                free(column_names[column_count]);
+                return -1;
+            }
+        }
+        else
+        {
+            printf("Error: Expected '=' after column name\n");
+            free(table_name);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(values[i]);
+            }
+            free(column_names[column_count]);
+            return -1;
+        }
+    }
+
+    if (tokens[*iterator].type == TOKEN_WHERE)
+    {
+        (*iterator)++;
+        Table *tables[1];
+        char *alias[1];
+        tables[0] = target_table;
+        alias[0] = strdup(target_table->table_name);
+        int table_count = 1;
+        int match_count = 0;
+
+        long positions[target_table->record_size][table_count];
+
+        if (parse_where(tokens, token_count, iterator, tables, alias, table_count, positions, &match_count) != 0)
+        {
+            printf("Error: Failed to parse WHERE clause\n");
+            free(table_name);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(values[i]);
+            }
+            return -1;
+        }
+        if (match_count == 0)
+        {
+            printf("No matching records found\n");
+            free(table_name);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(values[i]);
+            }
+            return 0;
+        }
+
+        // semicolon check
+        if (tokens[*iterator].type != TOKEN_SEMICOLON)
+        {
+            printf("Error: Expected semicolon after WHERE clause\n");
+            free(table_name);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(values[i]);
+            }
+            return -1;
+        }
+        (*iterator)++;
+        Column *columns[column_count];
+        for (int j = 0; j < column_count; j++)
+        {
+            int check = 0;
+            for (int k = 0; k < target_table->columns_count; k++)
+            {
+                if (strcmp(target_table->columns[k].name, column_names[j]) == 0)
+                {
+                    columns[j] = &target_table->columns[k];
+                    check++;
+                    break;
+                }
+            }
+            if (check == 0)
+            {
+                printf("Error: Column %s does not exist in table %s\n", column_names[j], target_table->table_name);
+                free(table_name);
+                for (int i = 0; i < column_count; i++)
+                {
+                    free(column_names[i]);
+                    free(values[i]);
+                }
+                return -1;
+            }
+        }
+        FILE *file = open_file(target_table->table_name, "bin", "rb+");
+        if (file == NULL)
+        {
+            printf("Error: Failed to open table file %s\n", target_table->table_name);
+            free(table_name);
+            for (int i = 0; i < column_count; i++)
+            {
+                free(column_names[i]);
+                free(values[i]);
+            }
+            return -1;
+        }
+        for (int i = 0; i < match_count; i++)
+        {
+            long position = positions[i][0];
+            if (isfree(target_table, position))
+            {
+                // printf("Record at position %ld is already deleted\n", position);
+                continue;
+            }
+            for (int j = 0; j < column_count; j++)
+            {
+                fseek(file, position + calculate_offset(target_table, *columns[j]), SEEK_SET);
+                if (columns[j]->type == INT)
+                {
+                    int value = atoi(values[j]);
+                    fwrite(&value, sizeof(int), 1, file);
+                }
+                else if (columns[j]->type == STRING)
+                {
+                    char *value = values[j];
+                    fwrite(value, sizeof(char), columns[j]->lenght, file);
+                }
+                else
+                {
+                    printf("Error: Unknown column type %d\n", columns[j]->type);
+                    fclose(file);
+                    free(table_name);
+                    for (int i = 0; i < column_count; i++)
+                    {
+                        free(column_names[i]);
+                        free(values[i]);
+                    }
+                    return -1;
+                }
+            }
+        }
+        fclose(file);
+        free(table_name);
+        for (int i = 0; i < column_count; i++)
+        {
+            free(column_names[i]);
+            free(values[i]);
+        }
+        return 0;
+    }
+    else
+    {
+        printf("Error: Expected WHERE\n");
+        free(table_name);
+        for (int i = 0; i < column_count; i++)
+        {
+            free(column_names[i]);
+            free(values[i]);
+        }
         return -1;
     }
 }
@@ -1097,6 +1813,22 @@ int parser(Token *tokens, int token_count)
         case TOKEN_DROP:
             iterator++;
             if (parse_drop(tokens, token_count, &iterator) == -1)
+            {
+                printf("Error: Failed to parse DROP statement\n");
+                return -1;
+            }
+            break;
+        case TOKEN_DELETE:
+            iterator++;
+            if (parse_delete(tokens, token_count, &iterator) == -1)
+            {
+                printf("Error: Failed to parse DROP statement\n");
+                return -1;
+            }
+            break;
+        case TOKEN_UPDATE:
+            iterator++;
+            if (parse_update(tokens, token_count, &iterator) == -1)
             {
                 printf("Error: Failed to parse DROP statement\n");
                 return -1;

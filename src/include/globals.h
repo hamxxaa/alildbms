@@ -9,6 +9,7 @@
 #define MAX_TOKEN_LENGTH 256
 #define MAX_TOKEN_COUNT 256
 #define MAX_TABLE_COUNT 100
+#define MAX_JOIN_COUNT 10
 
 typedef struct Globals Globals;
 

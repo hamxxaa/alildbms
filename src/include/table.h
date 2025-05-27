@@ -197,4 +197,32 @@ Column *get_column(const Table *table, const char *column_name);
  */
 int drop_table(Table *table);
 
+/**
+ * @brief Get the primary key from the row data.
+ *
+ * @param table The table to get the primary key from.
+ * @param row The row data in binary format.
+ * @return void* Pointer to the primary key value, or NULL on failure.
+ *         note: the returned value must be freed by the caller.
+ */
+void *get_primary_key_from_row_data(Table *table, char *row);
+
+/**
+ * @brief Delete a record from the table by its position.
+ *
+ * @param table The table from which to delete the record.
+ * @param pos The position of the record in the file.
+ * @return int 0 on success, -1 on failure.
+ */
+int delete_record_by_row_position(Table *table, long pos);
+
+/**
+ * @brief Check if a record is free (deleted) in the table.
+ *
+ * @param table The table to check in.
+ * @param pos The position of the record in the file.
+ * @return int 1 if the record is free (deleted), 0 if it is not, -1 on failure.
+ */
+int isfree(Table *table, long pos);
+
 #endif

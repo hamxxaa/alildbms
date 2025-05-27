@@ -465,7 +465,12 @@ Column *get_column(const Table *table, const char *column_name)
 
 int cmpcolumns(const Column a, const Column b)
 {
-    return strcmp(a.name, b.name) && !(a.type == b.type) && !(a.lenght == b.lenght);
+    if (a.type == b.type && a.lenght == b.lenght && strcmp(a.name, b.name) == 0)
+    {
+        return 0; // Columns are equal
+    }
+    // Columns are not equal
+    return 1;
 }
 
 HashEntry *find_record_from_args(const Table *table, va_list args)
@@ -604,6 +609,22 @@ int update_record(const Table *table, const Column column, ...)
     return 0;
 }
 
+int isfree(Table *table, long pos)
+{
+    if (table->free_spaces_count == 0)
+    {
+        return 0; // No free spaces
+    }
+    for (int i = 0; i < table->free_spaces_count; i++)
+    {
+        if (table->free_spaces[i] == pos)
+        {
+            return 1; // Position is free
+        }
+    }
+    return 0; // Position is not free
+}
+
 int delete_record(Table *table, ...)
 {
     // TODO: delete from hashmap
@@ -701,6 +722,105 @@ int delete_record(Table *table, ...)
     fclose(file);
     va_end(args);
     return 0;
+}
+void *get_primary_key_from_row_data(Table *table, char *row)
+{
+    if (table->primary_key.type == INT)
+    {
+        int *key = malloc(sizeof(int));
+        if (!key)
+        {
+            perror("Memory allocation failed");
+            return NULL;
+        }
+        *key = *(int *)(row + calculate_offset(table, table->primary_key));
+        return key;
+    }
+    else if (table->primary_key.type == STRING)
+    {
+        char *key = malloc(table->primary_key.lenght + 1);
+        if (!key)
+        {
+            perror("Memory allocation failed");
+            return NULL;
+        }
+        strncpy(key, row + calculate_offset(table, table->primary_key), table->primary_key.lenght);
+        key[table->primary_key.lenght] = '\0'; // Null-terminate the string
+        return key;
+    }
+    return NULL; // Invalid primary key type
+}
+
+int delete_record_by_row_position(Table *table, long pos)
+{
+    char *row_data = (char *)malloc(table->row_size_in_bytes);
+    FILE *file = open_file(table->table_name, "bin", "rb+");
+    if (!file)
+    {
+        return -1;
+    }
+
+    fseek(file, pos, SEEK_SET);
+    int bytes_read = fread(row_data, 1, table->row_size_in_bytes, file);
+    if (bytes_read != table->row_size_in_bytes)
+    {
+        printf("Error reading file at position %ld\n", pos);
+        free(row_data);
+        fclose(file);
+        return -1;
+    }
+    switch (table->primary_key.type)
+    {
+    case INT:
+        int *intkey = (int *)get_primary_key_from_row_data(table, row_data);
+        if (!intkey)
+        {
+            printf("Failed to get primary key from row data\n");
+            free(row_data);
+            fclose(file);
+            return -1;
+        }
+        if (delete_record(table, *intkey) != 0)
+        {
+            printf("Failed to delete record\n");
+            free(intkey);
+            free(row_data);
+            fclose(file);
+            return -1;
+        }
+        free(intkey);
+        free(row_data);
+        fflush(file);
+        fclose(file);
+
+        return 0;
+        break;
+
+    case STRING:
+        char *key = (char *)get_primary_key_from_row_data(table, row_data);
+        if (!key)
+        {
+            printf("Failed to get primary key from row data\n");
+            free(row_data);
+            fclose(file);
+            return -1;
+            if (delete_record(table, key) != 0)
+            {
+                printf("Failed to delete record\n");
+                free(key);
+                free(row_data);
+                fclose(file);
+                return -1;
+            }
+            free(key);
+            free(row_data);
+            fflush(file);
+            fclose(file);
+            return 0;
+        }
+        break;
+    }
+    return -1; // Invalid primary key type or error
 }
 
 int free_table(Table *table)

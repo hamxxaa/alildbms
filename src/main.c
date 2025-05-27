@@ -25,30 +25,30 @@ void setup()
     get_query("CREATE DATABASE test_db;");
     get_query("SHOW DATABASES;");
     get_query("LOAD DATABASE test_db;");
-    get_query("CREATE TABLE users (ID int, name char(50), age int, email char(20), PRIMARY KEY(ID));");
-    get_query("INSERT INTO users VALUES (1, 'ALICE', 25, 'mail');");
-    get_query("INSERT INTO users VALUES (2, 'BOB', 30, 'mail');");
-    get_query("INSERT INTO users VALUES (3, 'CHARLIE', 35, 'mail');");
-    get_query("INSERT INTO users VALUES (4, 'DAVID', 40, 'mail');");
-    get_query("INSERT INTO users VALUES (5, 'EVE', 28, 'mail');");
-    get_query("INSERT INTO users VALUES (6, 'FRANK', 22, 'mail');");
-    get_query("INSERT INTO users VALUES (7, 'GRACE', 29, 'mail');");
-    get_query("SELECT * FROM users WHERE ID = 1;");
-    get_query("CREATE TABLE products (ID int, name char(50), price int, PRIMARY KEY(ID));");
+    get_query("CREATE TABLE users (ID int, name char(50), email char(20), age int, PRIMARY KEY(ID));");
+    get_query("INSERT INTO users VALUES (1, 'ALICE', 'mail', 25);");
+    get_query("INSERT INTO users VALUES (2, 'BOB', 'mail', 30);");
+    get_query("INSERT INTO users VALUES (3, 'CHARLIE', 'mail', 35);");
+    get_query("INSERT INTO users VALUES (4, 'DAVID', 'mail', 40);");
+    get_query("INSERT INTO users VALUES (5, 'EVE', 'mail', 28);");
+    get_query("INSERT INTO users VALUES (6, 'FRANK', 'mail', 22);");
+    get_query("INSERT INTO users VALUES (7, 'GRACE', 'mail', 3);");
+    // get_query("SELECT * FROM users WHERE ID = 1;");
+    get_query("CREATE TABLE products (ID int, name char(53), price int, PRIMARY KEY(ID));");
     get_query("INSERT INTO products VALUES (1, 'Product1', 100);");
     get_query("INSERT INTO products VALUES (2, 'Product2', 200);");
-    get_query("SELECT * FROM products;");
-    get_query("SHOW TABLES;");
-    get_query("DROP TABLE users;");
+    get_query("INSERT INTO products VALUES (3, 'Product3', 150);");
+    get_query("INSERT INTO products VALUES (4, 'Product4', 190);");
+    get_query("INSERT INTO products VALUES (5, 'Product5', 500);");
+    // get_query("SELECT * FROM products;");
     get_query("SHOW TABLES;");
     get_query("CREATE TABLE use (ID int, PRIMARY KEY(ID));");
     get_query("INSERT INTO use VALUES (1);");
     get_query("INSERT INTO use VALUES (2);");
-    get_query("SELECT * FROM use;");
+    // get_query("SELECT * FROM use;");
     get_query("SHOW TABLES;");
     get_query("DROP TABLE use;");
     get_query("SHOW TABLES;");
-    get_query("DROP TABLE products;");
 }
 
 int main()
