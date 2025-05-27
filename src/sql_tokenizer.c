@@ -644,7 +644,7 @@ int parse_join(Token *tokens, int token_count, int *iterator, Table *tables[], c
             }
             return -1;
         }
-        *total_record_size *= tables[*table_count]->row_size_in_bytes;
+        *total_record_size *= tables[*table_count]->record_size;
         (*iterator)++;
         if (tokens[*iterator].type == TOKEN_IDENTIFIER)
         {
@@ -815,27 +815,6 @@ int parse_select(Token *tokens, int token_count, int *iterator)
         return -1;
     }
 
-    for (int i = 0; i < table_count - 1; i++)
-    {
-        for (int j = i + 1; j < table_count; j++)
-        {
-            if (strcmp(alias[i], alias[j]) == 0)
-            {
-                printf("Error: Alias %s used more than once\n", alias[i]);
-                for (int i = 0; i < column_count; i++)
-                {
-                    free(column_names[i]);
-                    free(column_alias[i]);
-                }
-                for (int i = 0; i < table_count; i++)
-                {
-                    free(alias[i]);
-                }
-                return -1;
-            }
-        }
-    }
-
     Column *columns[column_count];
     for (int i = 0; i < column_count; i++)
     {
@@ -923,7 +902,7 @@ int parse_select(Token *tokens, int token_count, int *iterator)
         {
             free(alias[i]);
         }
-        return 0; // when printing functions are ready this will be deleted
+        return 0; // TODO: when printing functions are ready this will be deleted
 
         if (all == 0)
         {
